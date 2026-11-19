@@ -45,7 +45,7 @@ curl --fail --location --retry 3 --retry-delay 2 \
 awk -v filename="$BUILDER_NAME" '
     NF >= 2 {
       listed_name = $2
-      sub(/^\\*/, "", listed_name)
+      if (substr(listed_name, 1, 1) == "*") listed_name = substr(listed_name, 2)
       if (listed_name == filename) {
         print $1 "  " filename
         found = 1
