@@ -29,8 +29,11 @@ done
 BUILDER_NAME="openwrt-imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}.Linux-x86_64.tar.zst"
 BASE_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
 mkdir -p "$CACHE_DIR" "$WORK_DIR/tmp" "$OUTPUT_DIR"
+find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type f -delete
+: > "$OUTPUT_DIR/build.log"
+exec > >(tee -a "$OUTPUT_DIR/build.log") 2>&1
 
-log "OpenWrt @ {OPENWRT_VERSION} / ${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+log "OpenWrt ${OPENWRT_VERSION} / ${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
 log "Boot: ${KERNEL_PARTSIZE_MIB} MiB; Root: ${ROOTFS_PARTSIZE_MIB} MiB"
 
 ARCHIVE_PATH="$CACHE_DIR/$BUILDER_NAME"
@@ -39,8 +42,20 @@ curl --fail --location --retry 3 --retry-delay 2 \
 curl --fail --location --retry 3 --retry-delay 2 \
   --output "$CACHE_DIR/sha256sums" "${BASE_URL}/sha256sums"
 
-awk -v filename="$BUILDER_NAME" '$2 == filename { print $1 "  " $2 }' \
-  "$CACHE_DIR/sha256sums" > "$CACHE_DIR/builder.sha256"
+awk -v filename="$BUILDER_NAME" '
+    NF >= 2 {
+      listed_name = $2
+      sub(/^\\*/, "", listed_name)
+      if (listed_name == filename) {
+        print $1 "  " filename
+        found = 1
+        exit
+      }
+    }
+    END {
+      if (!found) exit 1
+    }
+  ' "$CACHE_DIR/sha256sums" > "$CACHE_DIR/builder.sha256"
 [[ -s "$CACHE_DIR/builder.sha256" ]] || die "Builder archive missing from official checksum list."
 (cd "$CACHE_DIR" && sha256sum --check --strict builder.sha256)
 
@@ -88,8 +103,6 @@ else
   log "No filesystem overlay: keeping stock first-boot network defaults"
 fi
 
-find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type f -delete
-
 log "Generating package manifest"
 (
   cd "$BUILDER_DIR"
@@ -110,7 +123,7 @@ BUILD_ARGS+=("${FILES_ARGS[@]}")
 (
   cd "$BUILDER_DIR"
   PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s
-) 2>&1 | tee "$OUTPUT_DIR/build.log"
+)
 
 mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*ext4-combined.img.gz' ! -name '*efi*' -print)
 [[ "${#IMAGES[@]}" -eq 1 ]] || die "Expected one BIOS ext4 combined image; found ${#IMAGES[@]}."
