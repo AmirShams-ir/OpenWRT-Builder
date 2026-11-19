@@ -1,0 +1,63 @@
+name: Build Smart-Net OpenWrt
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "config/**"
+      - "files/**"
+      - "scripts/**"
+permissions:
+  contents: read
+concurrency:
+  group: smartnet-openwrt-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: OpenWrt 25.12.6 - x86/generic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl file gawk gzip make python3 tar xz-utils zstd
+          sudo apt-get clean
+      - name: Build and verify firmware
+        env:
+          OPENWRT_VERSION: "25.12.6"
+          OPENWRT_TARGET: "x86"
+          OPENWRT_SUBTARGET: "generic"
+          OPENWRT_PROFILE: "generic"
+          KERNEL_PARTSIZE_MIB: "100"
+          ROOTFS_PARTSIZE_MIB: "5120"
+          BUILD_ROOT: ${{ runner.temp }}/smartnet-openwrt-build
+          OUTPUT_DIR: ${{ github.workspace }}/output
+        run: bash scripts/build.sh
+      - name: Upload firmware artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartnet-openwrt-25.12.6-x86-generic
+          path: |
+            output/*.img.gz
+            output/*.manifest
+            output/manifest.txt
+            output/build-info.txt
+            output/sha256sums.txt
+            output/build.log
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload build log after failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartnet-openwrt-build-log
+          path: output/build.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 0

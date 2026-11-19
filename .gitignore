@@ -1,0 +1,11 @@
+# Local ImageBuilder workspace and output
+.build/
+.cache/
+work/
+output/
+*.img
+*.img.gz
+*.tar.zst
+*.tmp
+*.swp
+.DS_Store

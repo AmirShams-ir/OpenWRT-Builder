@@ -1,0 +1,5 @@
+# Additional packages for the Clientron E832 profile.
+# ImageBuilder resolves required dependencies automatically.
+kmod-ath9k
+wpad-basic-mbedtls
+iw
