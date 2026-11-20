@@ -1,6 +1,8 @@
 #!/bin/sh
 # Smart-Net proxy stack installer for OpenWrt 25.12 / apk.
-# Installs trusted-feed proxy cores, verified Mihomo, PassWall2, and its
+# Installs trusted-feed sing-box/Xray and PassWall2 packages. Nikki installs
+# Mihomo at runtime in module 09; this module never installs a second core.
+# Installs
 # fw4/nftables dependencies. Does not enable services or alter
 # routing, firewall, DNS, WAN/LAN, or wireless configuration.
 
@@ -14,9 +16,6 @@ PASSWALL2_REPO="https://github.com/Openwrt-Passwall/openwrt-passwall2.git"
 PASSWALL_PACKAGES_REPO="https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git"
 PASSWALL2_SOURCE_DIR="/home/smartnet/sources/passwall2"
 PASSWALL_PACKAGES_SOURCE_DIR="/home/smartnet/sources/passwall-packages"
-MIHOMO_RELEASE="v1.19.34"
-MIHOMO_I386_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_RELEASE}/mihomo-linux-386-${MIHOMO_RELEASE}.gz"
-MIHOMO_I386_SHA256="035c37e926a396bffacf4109caab451df891b8c32978238f3757e2b788715287"
 
 log() { printf '[06-proxy-stack] %s\n' "$*"; }
 report() { printf '%s\n' "$*" >> "$REPORT"; }
@@ -60,84 +59,6 @@ discover_only() {
     fi
 }
 
-install_mihomo_i386() {
-    command -v curl >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; curl missing"
-        log "Mihomo skipped: curl is not installed"
-        return 1
-    }
-    command -v sha256sum >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; sha256sum missing"
-        log "Mihomo skipped: sha256sum is not installed"
-        return 1
-    }
-    command -v gzip >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; gzip missing"
-        log "Mihomo skipped: gzip is not installed"
-        return 1
-    }
-
-    tmp="/tmp/smartnet-mihomo-$$"
-    mkdir -p "$tmp"
-    trap 'rm -rf "$tmp"' 0 HUP INT TERM
-
-    log "Downloading official Mihomo ${MIHOMO_RELEASE} linux/386 release"
-    if ! curl -fL --connect-timeout 20 --max-time 180 "$MIHOMO_I386_URL" -o "$tmp/mihomo.gz"; then
-        report "06-proxy-stack: Mihomo download failed"
-        log "Mihomo download failed"
-        return 1
-    fi
-
-    actual="$(sha256sum "$tmp/mihomo.gz" | awk '{print $1}')"
-    if [ "$actual" != "$MIHOMO_I386_SHA256" ]; then
-        report "06-proxy-stack: Mihomo checksum mismatch; binary not installed"
-        log "Mihomo checksum mismatch; refusing installation"
-        return 1
-    fi
-    if ! gzip -t "$tmp/mihomo.gz"; then
-        report "06-proxy-stack: Mihomo gzip archive invalid"
-        log "Mihomo archive is invalid"
-        return 1
-    fi
-    if ! gzip -dc "$tmp/mihomo.gz" > "$tmp/mihomo"; then
-        report "06-proxy-stack: Mihomo extraction failed"
-        log "Mihomo extraction failed"
-        return 1
-    fi
-    chmod 0755 "$tmp/mihomo"
-    if ! "$tmp/mihomo" -v >/dev/null 2>&1; then
-        report "06-proxy-stack: Mihomo linux/386 binary execution test failed"
-        log "Mihomo binary did not pass execution test"
-        return 1
-    fi
-
-    # BusyBox on OpenWrt does not provide GNU 'install'. Use cp + chmod.
-    # Verify the final binary before reporting successful installation.
-    if ! cp "$tmp/mihomo" /usr/bin/mihomo; then
-        report "06-proxy-stack: Mihomo copy to /usr/bin failed"
-        log "Mihomo installation failed while copying binary"
-        return 1
-    fi
-    if ! chmod 0755 /usr/bin/mihomo; then
-        rm -f /usr/bin/mihomo
-        report "06-proxy-stack: Mihomo chmod failed"
-        log "Mihomo installation failed while setting permissions"
-        return 1
-    fi
-    if [ ! -x /usr/bin/mihomo ] || ! /usr/bin/mihomo -v >/dev/null 2>&1; then
-        rm -f /usr/bin/mihomo
-        report "06-proxy-stack: Mihomo final execution verification failed"
-        log "Mihomo final verification failed; invalid binary removed"
-        return 1
-    fi
-
-    version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
-    report "06-proxy-stack: Mihomo installed and verified from official release: $version"
-    log "Mihomo installed and verified: $version"
-    rm -rf "$tmp"
-    trap - 0 HUP INT TERM
-    return 0
-}
 
 fetch_git_source() {
     repo="$1"
