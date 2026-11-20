@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
-# Prepare Nikki's signed APK repository for OpenWrt ImageBuilder.
-# Package artifacts are fetched by integrate-nikki.sh. The official repository
-# index is retained and passed through unchanged; apk-tools verifies signatures.
+# Nikki feed preflight. This script fetches and inventories official signed
+# repository metadata only; it does not install or trust APK package payloads.
 set -Eeuo pipefail
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-WORK="${1:?Usage: build-nikki-packages.sh WORK_DIR}"
+WORK="${1:?Usage: build-nikki-packages.sh WORK_DIR IMAGEBUILDER_DIR}"
 BUILDER="${2:?Usage: build-nikki-packages.sh WORK_DIR IMAGEBUILDER_DIR}"
-NIKKI_MODE="${SMARTNET_NIKKI:-1}"
-[[ "$NIKKI_MODE" = "1" ]] || { echo "Nikki integration disabled"; exit 0; }
-bash "$ROOT/scripts/integrate-nikki.sh" "$BUILDER" "$WORK"
-APK_DIR="$WORK/nikki-apks"
-FEED="$WORK/nikki-feed-url.txt"
-[[ -s "$APK_DIR/packages.adb" && -s "$WORK/nikki-feed/public-key.pem" ]] || {
-  echo "Nikki signed package repository metadata missing" >&2; exit 1;
-}
-# Do not use apk add --allow-untrusted. The package database is signed by the
-# upstream feed key; signature verification is delegated to the OpenWrt APK
-# tooling at package installation time.
-printf '%s\n' "Nikki packages prepared from $(cat "$FEED")"
+BRANCH="${NIKKI_BRANCH:-openwrt-25.12}"
+ARCH="${NIKKI_ARCH:-i386_pentium4}"
+BASE="${NIKKI_FEED_BASE:-https://nikkinikki.pages.dev}"
+[[ -f "$BUILDER/Makefile" ]] || { echo "Invalid ImageBuilder" >&2; exit 1; }
+[[ "$BRANCH:$ARCH" = "openwrt-25.12:i386_pentium4" ]] || { echo "Unsupported Nikki target" >&2; exit 1; }
+bash "$(dirname "$0")/integrate-nikki.sh" "$BUILDER" "$WORK"
+echo "Nikki upstream feed metadata downloaded."
+echo "Package installation is deliberately disabled pending verification of the signed local APK repository workflow."
