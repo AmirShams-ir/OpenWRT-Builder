@@ -1,7 +1,7 @@
 #!/bin/sh
 # Smart-Net proxy stack installer for OpenWrt 25.12 / apk.
-# Installs trusted-feed proxy cores, verified Mihomo, and fetches official
-# PassWall2 source for later packaging. Does not enable services or alter
+# Installs trusted-feed proxy cores, verified Mihomo, PassWall2, and its
+# fw4/nftables dependencies. Does not enable services or alter
 # routing, firewall, DNS, WAN/LAN, or wireless configuration.
 
 set -eu
@@ -278,17 +278,15 @@ install_passwall2_apk() {
     report "06-proxy-stack: luci-app-passwall2 installed and verified from signed APK feed"
     log "PassWall2 LuCI package installed and verified"
 
-    if package_available luci-i18n-passwall2-fa; then
-        if apk add luci-i18n-passwall2-fa && package_installed luci-i18n-passwall2-fa; then
-            report "06-proxy-stack: Persian PassWall2 translation installed"
-            log "Persian PassWall2 translation installed"
+    # Keep the LuCI interface in English; do not install language packs.
+    if package_installed luci-i18n-passwall2-fa; then
+        log "Removing previously installed Persian PassWall2 translation"
+        if apk del luci-i18n-passwall2-fa; then
+            report "06-proxy-stack: Persian translation removed; English interface retained"
         else
-            report "06-proxy-stack: Persian translation package install failed"
-            log "PassWall2 installed, but Persian translation could not be installed"
+            report "06-proxy-stack: failed to remove Persian translation"
+            log "Could not remove Persian translation package"
         fi
-    else
-        report "06-proxy-stack: Persian translation package unavailable"
-        log "Persian translation package not available in current feed"
     fi
     return 0
 }
@@ -321,17 +319,125 @@ case "$arch" in
         ;;
 esac
 
+install_passwall2_nft_dependencies() {
+    # OpenWrt 25.12 uses fw4/nftables. These are the required kernel
+    # components selected by the official PassWall2 fw4 build:
+    # nft_socket, nft_tproxy and nft_nat.
+    required_packages="kmod-nft-socket kmod-nft-tproxy kmod-nft-nat"
+    missing_packages=""
+
+    for pkg in $required_packages; do
+        if ! package_installed "$pkg"; then
+            if package_available "$pkg"; then
+                missing_packages="$missing_packages $pkg"
+            else
+                report "06-proxy-stack: required nft dependency unavailable: $pkg"
+                log "Required nft dependency is unavailable: $pkg"
+                return 1
+            fi
+        fi
+    done
+
+    if [ -n "$missing_packages" ]; then
+        log "Installing PassWall2 nftables kernel dependencies:$missing_packages"
+        if ! apk add $missing_packages; then
+            report "06-proxy-stack: failed to install nft dependencies:$missing_packages"
+            log "Failed to install PassWall2 nftables dependencies"
+            return 1
+        fi
+    fi
+
+    # Ensure kernel modules are loaded now; tolerate built-in modules for
+    # which modprobe reports that no loadable module file exists.
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe nft_socket >/dev/null 2>&1 || true
+        modprobe nft_tproxy >/dev/null 2>&1 || true
+        modprobe nft_nat >/dev/null 2>&1 || true
+    fi
+
+    missing_packages=""
+    for pkg in $required_packages; do
+        if ! package_installed "$pkg"; then
+            missing_packages="$missing_packages $pkg"
+        fi
+    done
+    if [ -n "$missing_packages" ]; then
+        report "06-proxy-stack: nft dependencies remain missing:$missing_packages"
+        log "PassWall2 nftables dependencies remain missing:$missing_packages"
+        return 1
+    fi
+
+    # Verify the actual nftables expressions, not only APK package records.
+    if command -v nft >/dev/null 2>&1; then
+        nft list tables >/dev/null 2>&1 || {
+            report "06-proxy-stack: nft command failed after dependency installation"
+            log "nftables userspace verification failed"
+            return 1
+        }
+    else
+        report "06-proxy-stack: nft command missing"
+        log "nftables userspace command is missing"
+        return 1
+    fi
+
+    report "06-proxy-stack: required fw4 nft dependencies installed: $required_packages"
+    log "PassWall2 nftables kernel dependencies installed and verified"
+    return 0
+}
+
+install_passwall2_optional_dependencies() {
+    # Useful protocol/helper packages supported by the i386 target.
+    # Install only when a trusted configured feed provides them.
+    optional_packages="chinadns-ng dns2socks hysteria naiveproxy tcping"
+    for pkg in $optional_packages; do
+        if package_installed "$pkg"; then
+            report "06-proxy-stack: optional dependency already installed: $pkg"
+        elif package_available "$pkg"; then
+            log "Installing optional PassWall2 helper: $pkg"
+            if apk add "$pkg"; then
+                report "06-proxy-stack: optional dependency installed: $pkg"
+            else
+                report "06-proxy-stack: optional dependency install failed: $pkg"
+                log "Optional helper could not be installed: $pkg"
+            fi
+        else
+            report "06-proxy-stack: optional dependency unavailable in trusted feeds: $pkg"
+            log "Optional helper unavailable in configured feeds: $pkg"
+        fi
+    done
+
+    # These plugins are optional; do not fail the whole stack if absent.
+    optional_plugins="xray-plugin v2ray-plugin"
+    for pkg in $optional_plugins; do
+        if package_installed "$pkg"; then
+            report "06-proxy-stack: optional plugin already installed: $pkg"
+        elif package_available "$pkg"; then
+            if apk add "$pkg"; then
+                report "06-proxy-stack: optional plugin installed: $pkg"
+            else
+                report "06-proxy-stack: optional plugin installation failed: $pkg"
+            fi
+        else
+            report "06-proxy-stack: optional plugin unavailable: $pkg"
+        fi
+    done
+}
+
 # PassWall2 is a LuCI management application, not a proxy core.
-# Keep upstream source checkouts for reference and install the signed APK
-# from the upstream-documented SourceForge feed for this exact target.
-if package_installed luci-app-passwall2; then
-    report "06-proxy-stack: PassWall2 LuCI package already installed"
-    log "PassWall2 LuCI package already installed"
-else
+# For an existing or newly installed panel, complete the fw4/nftables
+# prerequisites and optional i386 protocol helpers without enabling services.
+if ! package_installed luci-app-passwall2; then
     discover_only luci-app-passwall2
     fetch_git_source "$PASSWALL2_REPO" "$PASSWALL2_SOURCE_DIR" "PassWall2" || true
     fetch_git_source "$PASSWALL_PACKAGES_REPO" "$PASSWALL_PACKAGES_SOURCE_DIR" "PassWall2 dependency" || true
     install_passwall2_apk || true
+fi
+
+if package_installed luci-app-passwall2; then
+    install_passwall2_nft_dependencies || true
+    install_passwall2_optional_dependencies
+else
+    report "06-proxy-stack: PassWall2 dependencies skipped because luci-app-passwall2 is not installed"
 fi
 
 if command -v sing-box >/dev/null 2>&1; then
