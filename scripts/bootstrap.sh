@@ -9,7 +9,7 @@ MODULE_DIR="$ROOT_DIR/scripts/modules"
 LOG_FILE="/var/log/smartnet-bootstrap.log"
 LOCK_DIR="/var/lock/smartnet-bootstrap.lock"
 REPORT_FILE="/root/smartnet-bootstrap-report.txt"
-MODULES="00-system.sh 01-memory.sh 02-kernel.sh 03-security.sh 04-network.sh 05-wireguard.sh 06-proxy-stack.sh 07-docker.sh 08-webhosting.sh"
+MODULES="00-system.sh 01-memory.sh 02-kernel.sh 03-security.sh 04-network.sh 05-wireguard.sh 06-proxy-stack.sh 07-docker.sh 08-webhosting.sh 09-mihomo-luci.sh"
 log() {
   line="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo time-unknown) [Bootstrap] $*"
   printf '%s\n' "$line"
