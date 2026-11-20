@@ -37,6 +37,19 @@ jobs:
           PACKAGES: mihomo-meta nikki luci-app-nikki
           NO_REFRESH_CHECK: true
 
+      - name: Build and verify firmware
+        env:
+          OPENWRT_VERSION: "25.12.6"
+          OPENWRT_TARGET: "x86"
+          OPENWRT_SUBTARGET: "generic"
+          OPENWRT_PROFILE: "generic"
+          KERNEL_PARTSIZE_MIB: "100"
+          ROOTFS_PARTSIZE_MIB: "5120"
+          SMARTNET_WIFI_KEY: ${{ secrets.SMARTNET_WIFI_KEY }}
+          BUILD_ROOT: ${{ runner.temp }}/smartnet-openwrt-build
+          OUTPUT_DIR: ${{ github.workspace }}/output
+        run: bash scripts/build.sh
+
       - name: Prepare Nikki package release archive
         shell: bash
         run: |
@@ -59,19 +72,6 @@ jobs:
             ls -1 "$DEST"/*.apk | xargs -n1 basename
           } > "$DEST/BUILD-INFO.txt"
           tar -czf output/nikki-i386_pentium4.tar.gz -C "$DEST" .
-
-      - name: Build and verify firmware
-        env:
-          OPENWRT_VERSION: "25.12.6"
-          OPENWRT_TARGET: "x86"
-          OPENWRT_SUBTARGET: "generic"
-          OPENWRT_PROFILE: "generic"
-          KERNEL_PARTSIZE_MIB: "100"
-          ROOTFS_PARTSIZE_MIB: "5120"
-          SMARTNET_WIFI_KEY: ${{ secrets.SMARTNET_WIFI_KEY }}
-          BUILD_ROOT: ${{ runner.temp }}/smartnet-openwrt-build
-          OUTPUT_DIR: ${{ github.workspace }}/output
-        run: bash scripts/build.sh
 
       - name: Upload firmware and Nikki package artifacts
         if: success()
