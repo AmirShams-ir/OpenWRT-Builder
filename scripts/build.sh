@@ -75,21 +75,14 @@ unset_config_value CONFIG_TARGET_ROOTFS_SQUASHFS
 set_config_value CONFIG_TARGET_KERNEL_PARTSIZE "$KERNEL_PARTSIZE_MIB"
 set_config_value CONFIG_TARGET_ROOTFS_PARTSIZE "$ROOTFS_PARTSIZE_MIB"
 
-# Nikki package set: fetched from official feed and staged into the local ImageBuilder repo.
-NIKKI_PACKAGES=""
+# Nikki package integration is intentionally fail-closed until APK repository
+# signature verification and ImageBuilder local-repository wiring are validated.
+# Avoid passing bare APK files or unverified packages into a production image.
 if [[ "${SMARTNET_NIKKI:-1}" = "1" ]]; then
-  bash "$ROOT_DIR/scripts/build-nikki-packages.sh" "$WORK_DIR" "$BUILDER_DIR"
-  NIKKI_APK_DIR="$WORK_DIR/nikki-apks"
-  # Verify APK payloads and the signed upstream repository index with apk-tools.
-  command -v apk >/dev/null 2>&1 || die "apk-tools is required to verify Nikki package signatures."
-  # Use the upstream database signature; fail closed if apk cannot verify it.
-  apk verify --keys-dir "$WORK_DIR/nikki-feed" "$NIKKI_APK_DIR"/*.apk >/dev/null 2>&1 || die "Nikki APK signature verification failed."
-  mkdir -p "$BUILDER_DIR/packages/nikki"
-  cp -f "$NIKKI_APK_DIR"/*.apk "$BUILDER_DIR/packages/nikki/"
-  cp -f "$NIKKI_APK_DIR/packages.adb" "$BUILDER_DIR/packages/nikki/"
-  NIKKI_PACKAGES="mihomo-meta nikki luci-app-nikki"
-  log "Nikki package artifacts staged for ImageBuilder."
+  bash "$ROOT_DIR/scripts/integrate-nikki.sh" "$BUILDER_DIR" "$WORK_DIR"
+  die "Nikki APKs were downloaded, but local APK repository signature verification and ImageBuilder integration are not yet validated. Set SMARTNET_NIKKI=0 for a baseline image."
 fi
+NIKKI_PACKAGES=""
 
 PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 [[ -f "$PACKAGES_FILE" ]] || die "Missing config/packages.txt"
