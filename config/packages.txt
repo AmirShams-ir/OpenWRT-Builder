@@ -18,3 +18,7 @@ ethtool
 tcpdump
 # Web administration (LuCI over HTTPS; includes uhttpd and TLS dependencies)
 luci-ssl
+# Disk partitioning and persistent filesystem support for Installer 99
+fdisk
+block-mount
+e2fsprogs
