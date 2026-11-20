@@ -302,22 +302,20 @@ install_core xray-core || true
 # Tiny is an alternative sing-box build, not an additional independent core.
 discover_only sing-box-tiny
 
-# Mihomo upstream publishes a matching linux/386 binary for this 32-bit x86 box.
-case "$arch" in
-    i386|i486|i586|i686)
-        if [ -x /usr/bin/mihomo ] && /usr/bin/mihomo -v >/dev/null 2>&1; then
-            version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
-            report "06-proxy-stack: Mihomo already installed and executable: $version"
-            log "Mihomo already installed: $version"
-        else
-            install_mihomo_i386 || true
-        fi
-        ;;
-    *)
-        report "06-proxy-stack: Mihomo automatic binary install skipped for arch=$arch"
-        log "Mihomo automatic binary install skipped for unsupported arch=$arch"
-        ;;
-esac
+# Mihomo is installed as the package-managed core by Nikki in this image.
+# Never overwrite /usr/bin/mihomo with a standalone binary here. The package
+# owns the alternative link and procd lifecycle.
+if apk info -e mihomo-meta >/dev/null 2>&1; then
+    report "06-proxy-stack: Nikki-managed Mihomo package detected; standalone binary install skipped"
+    log "Nikki owns Mihomo; standalone binary install skipped."
+elif [ -x /usr/bin/mihomo ] && /usr/bin/mihomo -v >/dev/null 2>&1; then
+    version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
+    report "06-proxy-stack: standalone Mihomo binary already present: $version"
+    log "Standalone Mihomo binary found: $version"
+else
+    report "06-proxy-stack: standalone Mihomo install skipped; Nikki integration manages Mihomo"
+    log "Standalone Mihomo installation is disabled; Nikki integration owns the core."
+fi
 
 install_passwall2_nft_dependencies() {
     # OpenWrt 25.12 uses fw4/nftables. These are the required kernel
