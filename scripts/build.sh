@@ -111,6 +111,28 @@ fi
 FILES_ARGS=("FILES=$BUILD_FILES_DIR")
 log "Using filesystem overlay: $BUILD_FILES_DIR"
 
+log "Generating package manifest"
+(
+  cd "$BUILDER_DIR"
+  TMPDIR="$WORK_DIR/tmp" make manifest PROFILE="$OPENWRT_PROFILE" PACKAGES="$PACKAGES"
+) > "$OUTPUT_DIR/manifest.txt"
+
+log "Running ImageBuilder"
+BUILD_ARGS=(
+  image
+  "PROFILE=$OPENWRT_PROFILE"
+  "PACKAGES=$PACKAGES"
+  "BIN_DIR=$OUTPUT_DIR"
+  "CONFIG_TARGET_KERNEL_PARTSIZE=$KERNEL_PARTSIZE_MIB"
+  "CONFIG_TARGET_ROOTFS_PARTSIZE=$ROOTFS_PARTSIZE_MIB"
+)
+BUILD_ARGS+=("${FILES_ARGS[@]}")
+
+(
+  cd "$BUILDER_DIR"
+  PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s
+)
+
 mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*ext4-combined.img.gz' ! -name '*efi*' -print)
 [[ "${#IMAGES[@]}" -eq 1 ]] || die "Expected one BIOS ext4 combined image; found ${#IMAGES[@]}."
 IMAGE_PATH="${IMAGES[0]}"
