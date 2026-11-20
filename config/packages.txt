@@ -16,3 +16,5 @@ wget-ssl
 ip-full
 ethtool
 tcpdump
+# Web administration (LuCI over HTTPS; includes uhttpd and TLS dependencies)
+luci-ssl
