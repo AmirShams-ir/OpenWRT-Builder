@@ -347,12 +347,17 @@ install_passwall2_nft_dependencies() {
         fi
     fi
 
-    # Ensure kernel modules are loaded now; tolerate built-in modules for
-    # which modprobe reports that no loadable module file exists.
+    # Ask the kernel to load modules immediately. Some modules may be
+    # built into the kernel and therefore absent from lsmod; package presence
+    # is checked independently below.
     if command -v modprobe >/dev/null 2>&1; then
-        modprobe nft_socket >/dev/null 2>&1 || true
-        modprobe nft_tproxy >/dev/null 2>&1 || true
-        modprobe nft_nat >/dev/null 2>&1 || true
+        for module in nft_socket nft_tproxy nft_nat; do
+            if modprobe "$module" >/dev/null 2>&1; then
+                log "Kernel module available: $module"
+            else
+                log "Kernel module not dynamically loadable (may be built-in): $module"
+            fi
+        done
     fi
 
     missing_packages=""
@@ -367,21 +372,19 @@ install_passwall2_nft_dependencies() {
         return 1
     fi
 
-    # Verify the actual nftables expressions, not only APK package records.
-    if command -v nft >/dev/null 2>&1; then
-        nft list tables >/dev/null 2>&1 || {
-            report "06-proxy-stack: nft command failed after dependency installation"
-            log "nftables userspace verification failed"
-            return 1
-        }
-    else
+    if ! command -v nft >/dev/null 2>&1; then
         report "06-proxy-stack: nft command missing"
         log "nftables userspace command is missing"
         return 1
     fi
+    if ! nft list tables >/dev/null 2>&1; then
+        report "06-proxy-stack: nft command could not query current ruleset"
+        log "nftables userspace query failed"
+        return 1
+    fi
 
-    report "06-proxy-stack: required fw4 nft dependencies installed: $required_packages"
-    log "PassWall2 nftables kernel dependencies installed and verified"
+    report "06-proxy-stack: required fw4 nft APK dependencies installed: $required_packages"
+    log "PassWall2 nftables APK dependencies installed; kernel module load attempted"
     return 0
 }
 
