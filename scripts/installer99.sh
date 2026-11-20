@@ -52,14 +52,16 @@ case "$CMDLINE" in
   *) die "Cannot confirm root partition 2 from kernel command line." ;;
 esac
 
-# Gather the existing DOS partition table in machine-readable form.
-TABLE="$(sfdisk --dump "$DISK" 2>/dev/null)" || die "Cannot read partition table with sfdisk."
-printf '%s\n' "$TABLE" | grep -q "^label: dos$" || die "Expected DOS/MBR partition table."
-printf '%s\n' "$TABLE" | grep -q "^${DISK}1[[:space:]]*=" || die "Partition 1 missing."
-printf '%s\n' "$TABLE" | grep -q "^${DISK}2[[:space:]]*=" || die "Partition 2 missing."
-
+# Gather current partition metadata from /proc/partitions and sysfs.
+# These are independent of human-readable fdisk formatting.
+PART1="${DISK}1"
+PART2="${DISK}2"
+[ -e "/sys/class/block/$(basename "$PART1")/start" ] || die "Partition 1 sysfs data missing."
+[ -e "/sys/class/block/$(basename "$PART2")/start" ] || die "Partition 2 sysfs data missing."
 DISK_SECTORS="$(blockdev --getsz "$DISK")"
-case "$DISK_SECTORS" in ''|*[!0-9]*) die "Cannot read disk capacity.";; esac
+P2_START="$(cat "/sys/class/block/$(basename "$PART2")/start")"
+P2_SIZE="$(cat "/sys/class/block/$(basename "$PART2")/size")"
+case "$DISK_SECTORS:$P2_START:$P2_SIZE" in *[!0-9:]*|:*|*::*) die "Cannot read disk/partition sector data.";; esac
 [ "$DISK_SECTORS" -gt 0 ] || die "Invalid disk capacity."
 
 if [ -b "$PART" ]; then
