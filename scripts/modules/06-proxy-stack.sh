@@ -1,7 +1,8 @@
 #!/bin/sh
-# Smart-Net: conservative proxy-stack package selection.
-# sing-box is the default core. Other cores are discovery-only.
-# Never add third-party feeds or install unsigned binaries.
+# Smart-Net: install all compatible proxy cores available in trusted feeds.
+# sing-box-tiny is an alternative build of sing-box and is not installed
+# alongside the full sing-box package. No third-party feeds or unsigned
+# binaries are added.
 set -eu
 
 PATH="/usr/sbin:/usr/bin:/sbin:/bin"
@@ -25,7 +26,7 @@ package_available() {
     apk search -x "$1" 2>/dev/null | grep -q .
 }
 
-install_selected_core() {
+install_core() {
     pkg="$1"
 
     if package_installed "$pkg"; then
@@ -36,10 +37,11 @@ install_selected_core() {
 
     if ! package_available "$pkg"; then
         report "06-proxy-stack: unavailable in configured trusted feeds: $pkg"
-        log "$pkg is not available in configured feeds"
+        log "$pkg is unavailable in configured feeds"
         return 1
     fi
 
+    log "Installing $pkg"
     if apk add "$pkg" >/dev/null 2>&1 && package_installed "$pkg"; then
         report "06-proxy-stack: installation successful: $pkg"
         log "$pkg installed successfully"
@@ -47,7 +49,7 @@ install_selected_core() {
     fi
 
     report "06-proxy-stack: installation failed: $pkg"
-    log "installation failed for $pkg"
+    log "Installation failed for $pkg"
     return 1
 }
 
@@ -69,14 +71,19 @@ discover_only() {
 arch="$(uname -m 2>/dev/null || echo unknown)"
 target="$(. /etc/openwrt_release 2>/dev/null; echo "${DISTRIB_TARGET:-unknown}")"
 report "06-proxy-stack: arch=$arch target=$target"
-report "06-proxy-stack: default core=sing-box"
+report "06-proxy-stack: installing all available independent proxy cores"
 
-# Install only the selected default core. Never install multiple cores implicitly.
-install_selected_core sing-box || true
+# Install every independent core available from the currently configured feeds.
+# Failures are reported but do not prevent trying the remaining cores.
+install_core sing-box || true
+install_core xray-core || true
 
-# Discovery-only packages: do not install these automatically.
+# sing-box-tiny provides the same sing-box command/version as the full build.
+# It is an alternative package, not an additional independent core.
 discover_only sing-box-tiny
-discover_only xray-core
+
+# These packages are not present in the current official feeds; only report
+# availability. Never add an unreviewed custom feed automatically.
 discover_only mihomo
 discover_only passwall2
 discover_only luci-app-passwall2
@@ -90,5 +97,15 @@ else
     log "sing-box command unavailable"
 fi
 
+if command -v xray >/dev/null 2>&1; then
+    report "06-proxy-stack: Xray command available"
+    log "Xray command available"
+elif command -v xray-core >/dev/null 2>&1; then
+    report "06-proxy-stack: Xray core command available"
+    log "Xray core command available"
+else
+    report "06-proxy-stack: Xray command not found after package check"
+fi
+
 report "06-proxy-stack: no third-party feed, unsigned binary, service, or network configuration added"
-log "Proxy package checks completed; only sing-box is eligible for automatic installation."
+log "Proxy core installation and discovery completed."
