@@ -10,22 +10,57 @@ on:
       - "scripts/**"
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: smartnet-openwrt-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
-    name: OpenWrt 25.12.6 - x86/generic
+    name: OpenWrt 25.12.6 - x86/generic + Nikki packages
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Install host dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ca-certificates curl file gawk gzip make python3 tar xz-utils zstd
           sudo apt-get clean
+
+      - name: Build Nikki packages with the official OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: i386_pentium4-openwrt-25.12
+          FEEDNAME: nikki
+          PACKAGES: mihomo-meta nikki luci-app-nikki
+          NO_REFRESH_CHECK: true
+
+      - name: Prepare Nikki package feed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SRC="bin/packages/i386_pentium4/nikki"
+          DEST="output/nikki/i386_pentium4"
+          mkdir -p "$DEST"
+          for pkg in mihomo-meta nikki luci-app-nikki; do
+            file="$(find "$SRC" -maxdepth 1 -type f -name "${pkg}-*.apk" -print -quit)"
+            [[ -n "$file" ]] || { echo "Missing Nikki package: $pkg" >&2; exit 1; }
+            cp -f "$file" "$DEST/"
+          done
+          # Keep upstream package metadata alongside the APK files when present.
+          find "$SRC" -maxdepth 1 -type f \\( -name 'packages.adb' -o -name '*.SIGN.*' -o -name 'description' \\) -exec cp -f {} "$DEST/" \\;
+          (cd "$DEST" && sha256sum *.apk > SHA256SUMS)
+          {
+            echo "Nikki upstream: https://github.com/nikkinikki-org/OpenWrt-nikki"
+            echo "OpenWrt branch: 25.12"
+            echo "Architecture: i386_pentium4"
+            echo "Built from source via openwrt/gh-action-sdk"
+            echo "Packages:"
+            ls -1 "$DEST"/*.apk | xargs -n1 basename
+          } > "$DEST/BUILD-INFO.txt"
+
       - name: Build and verify firmware
         env:
           OPENWRT_VERSION: "25.12.6"
@@ -38,7 +73,8 @@ jobs:
           BUILD_ROOT: ${{ runner.temp }}/smartnet-openwrt-build
           OUTPUT_DIR: ${{ github.workspace }}/output
         run: bash scripts/build.sh
-      - name: Upload firmware artifacts
+
+      - name: Upload firmware and Nikki package artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -50,9 +86,11 @@ jobs:
             output/build-info.txt
             output/sha256sums.txt
             output/build.log
+            output/nikki/i386_pentium4/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
           compression-level: 0
+
       - name: Upload build log after failure
         if: failure()
         uses: actions/upload-artifact@v4
