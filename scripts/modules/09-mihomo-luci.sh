@@ -1,7 +1,7 @@
 #!/bin/sh
 # Smart-Net runtime installer for Nikki + Mihomo + LuCI.
-# Packages are built from the official Nikki source by this repository's CI.
-# ImageBuilder remains responsible only for the OS and base packages.
+# Packages are built from the official Nikki source by this repository's CI
+# and downloaded as public GitHub Release assets (not Actions artifacts).
 set -eu
 
 PATH="/usr/sbin:/usr/bin:/sbin:/bin"
@@ -45,7 +45,7 @@ ARCH="${DISTRIB_ARCH:-unknown}"
 [ -x /sbin/fw4 ] || fail "firewall4 is required"
 need_cmd apk
 need_cmd curl
-need_cmd unzip
+need_cmd tar
 need_cmd sha256sum
 need_cmd jsonfilter
 need_cmd grep
@@ -53,58 +53,46 @@ need_cmd find
 
 REPO_OWNER="AmirShams-ir"
 REPO_NAME="OpenWRT-Builder"
-ARTIFACT_NAME="smartnet-openwrt-25.12.6-x86-generic"
+RELEASE_TAG="smartnet-nikki"
+ARCHIVE_NAME="nikki-i386_pentium4.tar.gz"
 API_BASE="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
 TMP_DIR="$(mktemp -d /tmp/nikki-install.XXXXXX)" || fail "cannot create temporary directory"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT HUP INT TERM
 
-# Resolve the latest successful workflow run from this repository's default branch.
-log "Looking up the latest successful Smart-Net build on GitHub."
-RUNS_JSON="$TMP_DIR/runs.json"
+log "Looking up public Nikki package release on GitHub."
+RELEASE_JSON="$TMP_DIR/release.json"
 if ! curl -fsSL --retry 3 --connect-timeout 15 \
-  "$API_BASE/actions/runs?branch=main&status=success&per_page=30" -o "$RUNS_JSON"; then
-  fail "cannot query GitHub Actions runs"
+  "$API_BASE/releases/tags/$RELEASE_TAG" -o "$RELEASE_JSON"; then
+  fail "cannot find public GitHub release '$RELEASE_TAG'; run the Smart-Net workflow first"
 fi
 
-RUN_ID="$(jsonfilter -i "$RUNS_JSON" -e '@.workflow_runs[@.path=".github/workflows/build.yml" && @.conclusion="success"].id' 2>/dev/null | head -n1 || true)"
-[ -n "$RUN_ID" ] || fail "no successful Smart-Net workflow run found on main"
+DOWNLOAD_URL="$(jsonfilter -i "$RELEASE_JSON" -e "@.assets[@.name=\"$ARCHIVE_NAME\"].browser_download_url" 2>/dev/null | head -n1 || true)"
+[ -n "$DOWNLOAD_URL" ] || fail "release asset $ARCHIVE_NAME is missing"
 
-ARTIFACTS_JSON="$TMP_DIR/artifacts.json"
-if ! curl -fsSL --retry 3 --connect-timeout 15 \
-  "$API_BASE/actions/runs/$RUN_ID/artifacts" -o "$ARTIFACTS_JSON"; then
-  fail "cannot query build artifacts for run $RUN_ID"
+ARCHIVE="$TMP_DIR/$ARCHIVE_NAME"
+if ! curl -fL --retry 3 --connect-timeout 15 "$DOWNLOAD_URL" -o "$ARCHIVE"; then
+  fail "cannot download public GitHub release asset"
 fi
 
-ARTIFACT_ID="$(jsonfilter -i "$ARTIFACTS_JSON" -e "@.artifacts[@.name=\"$ARTIFACT_NAME\" && @.expired=false].id" 2>/dev/null | head -n1 || true)"
-[ -n "$ARTIFACT_ID" ] || fail "Nikki package artifact is missing or expired in run $RUN_ID"
-
-ZIP="$TMP_DIR/nikki-packages.zip"
-if ! curl -fL --retry 3 --connect-timeout 15 \
-  "$API_BASE/actions/artifacts/$ARTIFACT_ID/zip" -o "$ZIP"; then
-  fail "cannot download Nikki package artifact $ARTIFACT_ID"
-fi
-
-# Validate archive paths before extraction (reject traversal and unexpected paths).
-if ! unzip -Z1 "$ZIP" > "$TMP_DIR/archive.list"; then
-  fail "downloaded GitHub artifact is not a valid ZIP archive"
+# Reject absolute paths and parent traversal before extraction.
+if ! tar -tzf "$ARCHIVE" > "$TMP_DIR/archive.list"; then
+  fail "downloaded release asset is not a valid tar.gz archive"
 fi
 if grep -Eq '(^/|(^|/)\.\.(/|$))' "$TMP_DIR/archive.list"; then
-  fail "artifact contains unsafe archive paths"
-fi
-mkdir "$TMP_DIR/unpacked"
-if ! unzip -q "$ZIP" -d "$TMP_DIR/unpacked"; then
-  fail "cannot extract Nikki package artifact"
+  fail "release archive contains unsafe paths"
 fi
 
-PKG_DIR="$TMP_DIR/unpacked/nikki/i386_pentium4"
-[ -d "$PKG_DIR" ] || fail "package directory missing from artifact"
+mkdir "$TMP_DIR/unpacked"
+if ! tar -xzf "$ARCHIVE" -C "$TMP_DIR/unpacked"; then
+  fail "cannot extract Nikki package archive"
+fi
+PKG_DIR="$TMP_DIR/unpacked"
 (
   cd "$PKG_DIR"
   sha256sum -c SHA256SUMS
 ) || fail "package checksum verification failed"
 
-# Install only the three packages built for this exact OpenWrt architecture.
 set --
 for pkg in mihomo-meta nikki luci-app-nikki; do
   file="$(find "$PKG_DIR" -maxdepth 1 -type f -name "$pkg-*.apk" -print -quit)"
@@ -116,9 +104,8 @@ log "Refreshing official OpenWrt APK indexes."
 if ! apk update; then fail "official OpenWrt APK index refresh failed"; fi
 
 log "Installing Nikki packages built for OpenWrt 25.12 / i386_pentium4."
-# The package payloads are from upstream Nikki source and checksum-verified
-# against the artifact produced by this project's GitHub Actions workflow.
-# APK still resolves and installs dependencies from the configured OpenWrt feeds.
+# SHA256SUMS detects accidental or in-transit modification; it is not a
+# cryptographic publisher signature. The release is served by GitHub HTTPS.
 if ! apk add --allow-untrusted "$@"; then
   fail "APK installation failed; inspect dependency and architecture errors"
 fi
@@ -130,7 +117,7 @@ done
 [ -z "$missing" ] || fail "post-install verification failed; missing:$missing"
 
 ENABLED="$(uci -q get nikki.config.enabled 2>/dev/null || echo 0)"
-report "09-mihomo-luci: installed mihomo-meta nikki luci-app-nikki from GitHub Actions run $RUN_ID"
+report "09-mihomo-luci: installed mihomo-meta nikki luci-app-nikki from GitHub release $RELEASE_TAG"
 report "09-mihomo-luci: package architecture=$ARCH; nikki.config.enabled=${ENABLED:-0}"
 
 if [ "${ENABLED:-0}" = "0" ]; then
