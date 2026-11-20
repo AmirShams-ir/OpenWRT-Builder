@@ -45,8 +45,11 @@ ARCH="${DISTRIB_ARCH:-unknown}"
 [ -x /sbin/fw4 ] || fail "firewall4 is required"
 need_cmd apk
 need_cmd curl
-need_cmd tar
+need_cmd unzip
 need_cmd sha256sum
+need_cmd jsonfilter
+need_cmd grep
+need_cmd find
 
 REPO_OWNER="AmirShams-ir"
 REPO_NAME="OpenWRT-Builder"
@@ -64,7 +67,7 @@ if ! curl -fsSL --retry 3 --connect-timeout 15 \
   fail "cannot query GitHub Actions runs"
 fi
 
-RUN_ID="$(jsonfilter -i "$RUNS_JSON" -e '@.workflow_runs[@.name="Build Smart-Net OpenWrt" && @.conclusion="success"].id' 2>/dev/null | head -n1 || true)"
+RUN_ID="$(jsonfilter -i "$RUNS_JSON" -e '@.workflow_runs[@.path=".github/workflows/build.yml" && @.conclusion="success"].id' 2>/dev/null | head -n1 || true)"
 [ -n "$RUN_ID" ] || fail "no successful Smart-Net workflow run found on main"
 
 ARTIFACTS_JSON="$TMP_DIR/artifacts.json"
