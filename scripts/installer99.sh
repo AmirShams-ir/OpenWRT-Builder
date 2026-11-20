@@ -17,14 +17,13 @@ die() { printf '[Installer99] ERROR: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root."
 [ -b "$DISK" ] || die "Target disk does not exist: $DISK"
-command -v fdisk >/dev/null 2>&1 || die "fdisk missing; rebuild image with fdisk."
 command -v block >/dev/null 2>&1 || die "block-mount missing; rebuild image."
 command -v blockdev >/dev/null 2>&1 || die "blockdev missing."
 command -v blkid >/dev/null 2>&1 || die "blkid missing."
 command -v mkfs.ext4 >/dev/null 2>&1 || die "e2fsprogs missing; rebuild image."
 command -v uci >/dev/null 2>&1 || die "uci missing."
 command -v awk >/dev/null 2>&1 || die "awk missing."
-command -v sfdisk >/dev/null 2>&1 || die "sfdisk missing; add fdisk/sfdisk package."
+command -v sfdisk >/dev/null 2>&1 || die "sfdisk missing; add fdisk package."
 
 mkdir -p /var/lock
 if ! mkdir "$LOCK" 2>/dev/null; then die "Installer99 is already running."; fi
@@ -44,50 +43,51 @@ case "$BOOT_SOURCE" in
   "${DISK}1") ;;
   *) die "Expected /boot on ${DISK}1; found ${BOOT_SOURCE:-none}." ;;
 esac
-ROOT_SOURCE="$(awk '$2=="/"{print $1; exit}' /proc/mounts)"
-[ "$ROOT_SOURCE" = "/dev/root" ] || die "Unexpected root mount source: ${ROOT_SOURCE:-none}."
 CMDLINE="$(cat /proc/cmdline)"
 case "$CMDLINE" in
   *"root=PARTUUID="*|*"root=UUID="*|*"root=/dev/sda2"*) ;;
   *) die "Cannot confirm root partition 2 from kernel command line." ;;
 esac
 
-# Gather current partition metadata from /proc/partitions and sysfs.
-# These are independent of human-readable fdisk formatting.
+# Gather current partition metadata using sysfs (sector units).
 PART1="${DISK}1"
 PART2="${DISK}2"
 [ -e "/sys/class/block/$(basename "$PART1")/start" ] || die "Partition 1 sysfs data missing."
 [ -e "/sys/class/block/$(basename "$PART2")/start" ] || die "Partition 2 sysfs data missing."
 DISK_SECTORS="$(blockdev --getsz "$DISK")"
+P1_START="$(cat "/sys/class/block/$(basename "$PART1")/start")"
+P1_SIZE="$(cat "/sys/class/block/$(basename "$PART1")/size")"
 P2_START="$(cat "/sys/class/block/$(basename "$PART2")/start")"
 P2_SIZE="$(cat "/sys/class/block/$(basename "$PART2")/size")"
-case "$DISK_SECTORS:$P2_START:$P2_SIZE" in *[!0-9:]*|:*|*::*) die "Cannot read disk/partition sector data.";; esac
+case "$DISK_SECTORS:$P1_START:$P1_SIZE:$P2_START:$P2_SIZE" in *[!0-9:]*|:*|*::*) die "Cannot read disk/partition sector data.";; esac
 [ "$DISK_SECTORS" -gt 0 ] || die "Invalid disk capacity."
+
+TABLE="$(sfdisk --dump "$DISK" 2>/dev/null)" || die "Cannot read partition table."
+printf '%s\\n' "$TABLE" | grep -q '^label: dos$' || die "Expected DOS/MBR partition table."
+printf '%s\\n' "$TABLE" | grep -q "^${DISK}1[[:space:]]*=" || die "Partition 1 missing."
+printf '%s\\n' "$TABLE" | grep -q "^${DISK}2[[:space:]]*=" || die "Partition 2 missing."
+if printf '%s\\n' "$TABLE" | grep -Eq "^${DISK}[3-9][0-9]*[[:space:]]*="; then
+  die "Unexpected partition beyond partition 2; refusing to alter disk."
+fi
 
 if [ -b "$PART" ]; then
   log "$PART already exists. It will not be formatted or resized."
   TYPE="$(blkid -s TYPE -o value "$PART" 2>/dev/null || true)"
   [ "$TYPE" = "ext4" ] || die "Existing $PART is not ext4; refusing to format."
 else
-  # No other partition number may exist. Partitions 1 and 2 must remain exact.
-  if printf '%s\n' "$TABLE" | grep -Eq "^${DISK}[3-9][0-9]*[[:space:]]*="; then
-    die "Unexpected partition after partition 2; refusing to change disk."
-  fi
-
-  P2_START="$(printf '%s\n' "$TABLE" | awk -v p="${DISK}2" '$1==p {gsub(/;/,"",$4); print $4; exit}')"
-  P2_SIZE="$(printf '%s\n' "$TABLE" | awk -v p="${DISK}2" '$1==p {for(i=1;i<=NF;i++) if($i ~ /^size=/){sub(/^size=/,"",$i);gsub(/;/,"",$i);print $i;exit}}')"
-  case "$P2_START:$P2_SIZE" in *[!0-9:]*|:|*:) die "Cannot parse partition 2 start/size.";; esac
   P2_END=$((P2_START + P2_SIZE - 1))
   START=$(( (P2_END + 1 + 2047) / 2048 * 2048 ))
-  [ "$START" -lt "$DISK_SECTORS" ] || die "No free space after partition 2."
+  [ "$START" -lt "$DISK_SECTORS" ] || die "No unallocated space after partition 2."
   [ $((DISK_SECTORS - START)) -ge 8192 ] || die "Remaining tail is too small for Home."
 
   log "Creating $PART from sector $START to the final disk sector."
-  printf 'label: dos\nlabel-id: 0x%08x\ndevice: %s\nunit: sectors\n\n' 0 "$DISK" > /tmp/installer99.sfdisk
-  printf '%s\n' "$TABLE" | awk -v p1="${DISK}1" -v p2="${DISK}2" '$1==p1 || $1==p2 {print}' >> /tmp/installer99.sfdisk
-  printf '%s : start=%s, type=83\n' "$PART" "$START" >> /tmp/installer99.sfdisk
-  sfdisk --no-reread "$DISK" < /tmp/installer99.sfdisk || die "sfdisk failed; partitions were not intentionally reformatted."
-  rm -f /tmp/installer99.sfdisk
+  sfdisk --no-reread "$DISK" <<EOF
+label: dos
+unit: sectors
+${PART1} : start=${P1_START}, size=${P1_SIZE}, type=83
+${PART2} : start=${P2_START}, size=${P2_SIZE}, type=83
+${PART} : start=${START}, type=83
+EOF
   blockdev --rereadpt "$DISK" 2>/dev/null || true
   sleep 2
   [ -b "$PART" ] || die "$PART did not appear after partition-table update."
