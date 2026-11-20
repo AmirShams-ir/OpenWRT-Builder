@@ -179,6 +179,120 @@ fetch_git_source() {
     return 1
 }
 
+install_passwall2_apk() {
+    [ -f /etc/openwrt_release ] || {
+        report "06-proxy-stack: PassWall2 install aborted; /etc/openwrt_release missing"
+        return 1
+    }
+
+    . /etc/openwrt_release
+    release="${DISTRIB_RELEASE%.*}"
+    arch="${DISTRIB_ARCH:-unknown}"
+
+    # This module's tested package target is the Clientron x86 / Pentium 4 ABI.
+    if [ "$release" != "25.12" ] || [ "$arch" != "i386_pentium4" ]; then
+        report "06-proxy-stack: PassWall2 APK feed not configured for release=$release arch=$arch"
+        log "PassWall2 install skipped: expected OpenWrt 25.12 / i386_pentium4, got $release / $arch"
+        return 1
+    fi
+
+    command -v curl >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 || {
+        report "06-proxy-stack: PassWall2 install skipped; curl or sha256sum missing"
+        log "PassWall2 install requires curl and sha256sum"
+        return 1
+    }
+
+    key_url="https://sourceforge.net/projects/openwrt-passwall-build/files/apk.pub/download"
+    key_sha256="52802b143489214e13b78f96599a147a638205cc22d9dd6d71229504e38ddc00"
+    key_path="/etc/apk/keys/passwall.pub"
+    key_tmp="/tmp/passwall-apk-key.$"
+    feeds="/etc/apk/repositories.d/customfeeds.list"
+    base_url="https://sourceforge.net/projects/openwrt-passwall-build/files/releases/packages-$release/$arch"
+
+    mkdir -p /etc/apk/keys /etc/apk/repositories.d
+    log "Fetching PassWall repository signing key"
+    if ! curl -fL --connect-timeout 20 --max-time 120 "$key_url" -o "$key_tmp"; then
+        rm -f "$key_tmp"
+        report "06-proxy-stack: PassWall signing key download failed"
+        return 1
+    fi
+    actual_key_sha256="$(sha256sum "$key_tmp" | awk '{print $1}')"
+    if [ "$actual_key_sha256" != "$key_sha256" ]; then
+        rm -f "$key_tmp"
+        report "06-proxy-stack: PassWall signing key checksum mismatch; key not installed"
+        log "PassWall signing key checksum mismatch; refusing to trust repository"
+        return 1
+    fi
+
+    if [ -e "$key_path" ]; then
+        existing_key_sha256="$(sha256sum "$key_path" | awk '{print $1}')"
+        if [ "$existing_key_sha256" != "$key_sha256" ]; then
+            rm -f "$key_tmp"
+            report "06-proxy-stack: existing PassWall key differs from pinned key; refusing overwrite"
+            log "Existing PassWall key differs; refusing overwrite"
+            return 1
+        fi
+        rm -f "$key_tmp"
+    else
+        if ! cp "$key_tmp" "$key_path"; then
+            rm -f "$key_tmp"
+            report "06-proxy-stack: unable to install PassWall signing key"
+            return 1
+        fi
+        chmod 0644 "$key_path"
+        rm -f "$key_tmp"
+    fi
+
+    touch "$feeds"
+    for feed in passwall_packages passwall_luci passwall2; do
+        feed_line="$base_url/$feed/packages.adb"
+        if ! grep -Fqx "$feed_line" "$feeds"; then
+            printf '%s\\n' "$feed_line" >> "$feeds"
+        fi
+    done
+
+    log "Refreshing APK indexes for signed PassWall repositories"
+    if ! apk update; then
+        report "06-proxy-stack: APK index refresh failed for PassWall repositories"
+        log "PassWall APK index refresh failed; package installation skipped"
+        return 1
+    fi
+
+    if ! package_available luci-app-passwall2; then
+        report "06-proxy-stack: luci-app-passwall2 not found after signed feed refresh"
+        log "PassWall2 package not found in the configured 25.12 / i386_pentium4 feeds"
+        return 1
+    fi
+
+    log "Installing luci-app-passwall2 from signed APK repository"
+    if ! apk add luci-app-passwall2; then
+        report "06-proxy-stack: luci-app-passwall2 installation failed"
+        log "PassWall2 APK installation failed; inspect apk dependency output"
+        return 1
+    fi
+    if ! package_installed luci-app-passwall2; then
+        report "06-proxy-stack: PassWall2 install command returned but package is not installed"
+        log "PassWall2 package verification failed"
+        return 1
+    fi
+    report "06-proxy-stack: luci-app-passwall2 installed and verified from signed APK feed"
+    log "PassWall2 LuCI package installed and verified"
+
+    if package_available luci-i18n-passwall2-fa; then
+        if apk add luci-i18n-passwall2-fa && package_installed luci-i18n-passwall2-fa; then
+            report "06-proxy-stack: Persian PassWall2 translation installed"
+            log "Persian PassWall2 translation installed"
+        else
+            report "06-proxy-stack: Persian translation package install failed"
+            log "PassWall2 installed, but Persian translation could not be installed"
+        fi
+    else
+        report "06-proxy-stack: Persian translation package unavailable"
+        log "Persian translation package not available in current feed"
+    fi
+    return 0
+}
+
 target="$(. /etc/openwrt_release 2>/dev/null; echo "${DISTRIB_TARGET:-unknown}")"
 arch="$(uname -m 2>/dev/null || echo unknown)"
 apk_arch="$(apk --print-arch 2>/dev/null || echo unknown)"
@@ -208,8 +322,8 @@ case "$arch" in
 esac
 
 # PassWall2 is a LuCI management application, not a proxy core.
-# Fetch official upstream source into dedicated /home/smartnet directories.
-# Do not install unsigned packages, import keys, or change APK feeds.
+# Keep upstream source checkouts for reference and install the signed APK
+# from the upstream-documented SourceForge feed for this exact target.
 if package_installed luci-app-passwall2; then
     report "06-proxy-stack: PassWall2 LuCI package already installed"
     log "PassWall2 LuCI package already installed"
@@ -217,13 +331,7 @@ else
     discover_only luci-app-passwall2
     fetch_git_source "$PASSWALL2_REPO" "$PASSWALL2_SOURCE_DIR" "PassWall2" || true
     fetch_git_source "$PASSWALL_PACKAGES_REPO" "$PASSWALL_PACKAGES_SOURCE_DIR" "PassWall2 dependency" || true
-    if [ -f "$PASSWALL2_SOURCE_DIR/luci-app-passwall2/Makefile" ]; then
-        report "06-proxy-stack: PassWall2 Makefile found; source fetched but not installed"
-        log "Official PassWall2 source is present; build it or install from a signed compatible APK feed"
-    else
-        report "06-proxy-stack: PassWall2 source checkout incomplete or Makefile missing"
-        log "PassWall2 source checkout is incomplete; see report"
-    fi
+    install_passwall2_apk || true
 fi
 
 if command -v sing-box >/dev/null 2>&1; then
