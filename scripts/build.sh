@@ -133,7 +133,11 @@ BUILD_ARGS+=("${FILES_ARGS[@]}")
   PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s
 )
 
-mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f \\( -name '*ext4-combined.img.gz' -o -name '*combined-ext4.img.gz' -o -name '*combined.img.gz' \\) ! -name '*efi*' -print)
+mapfile -t IMAGES < <(
+  find "$OUTPUT_DIR" -maxdepth 1 -type f \
+    \( -name '*ext4-combined.img.gz' -o -name '*combined-ext4.img.gz' -o -name '*combined.img.gz' \) \
+    ! -name '*efi*' -print
+)
 if [[ "${#IMAGES[@]}" -ne 1 ]]; then
   log "ImageBuilder output files:"
   find "$OUTPUT_DIR" -maxdepth 1 -type f -printf '%f\\n' | sort
