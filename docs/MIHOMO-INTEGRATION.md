@@ -1,60 +1,76 @@
-# Mihomo + LuCI integration
+# Nikki + Mihomo + LuCI integration
 
-## Upstream selected
+## Selected architecture
 
-The UI/core package source is **MinimaxFlora/luci-app-mihomo**, a fork/port of
-nikkinikki-org/OpenWrt-nikki. It contains two packages:
+Nikki is the dedicated Mihomo manager. PassWall2 remains an independent manager
+for its own supported cores.
 
-- `mihomo`: Core, procd init service, UCI defaults, ucode mixin and nftables
-  transparent-proxy integration.
-- `luci-app-mihomo`: LuCI interface, menu entry and RPC/ACL integration.
+- Core package: `mihomo-meta` (provides Mihomo)
+- Manager/service: `nikki`
+- LuCI interface: `luci-app-nikki`
+- Other independent cores: sing-box and Xray
+- Other manager: PassWall2
 
-Upstream advertises OpenWrt 24.10/25.12 builds, including
-`i386_pentium4`, and requires firewall4/kernel >= 5.13.
+Do not install MinimaxFlora's `luci-app-mihomo`; it is not the selected UI.
 
-## Important architecture decision
+## Pinned target
 
-Do not install the existing raw `/usr/bin/mihomo` binary and the package's
-managed core in parallel. The upstream package owns the service lifecycle and
-may install an alternative for `/usr/bin/mihomo`. The old standalone installer
-must therefore be disabled when the managed package is selected.
+- OpenWrt 25.12.6
+- Target x86/generic
+- Package architecture i386_pentium4
+- Nikki feed branch openwrt-25.12
 
-Do not blindly enable transparent proxying during image construction. Keep the
-initial state disabled until the profile, LAN access control and routing mode
-have been reviewed on the target router. The upstream package has UCI defaults
-and nftables integration, so its exact defaults and migration scripts must be
-reviewed on every pinned upstream update.
+Official feed:
+https://nikkinikki.pages.dev/openwrt-25.12/i386_pentium4/nikki
 
-## Build status / required pipeline
+## Package ownership
 
-OpenWrt ImageBuilder installs binary packages; it cannot compile the upstream
-Go package or LuCI feed from source. A matching OpenWrt 25.12 SDK build is
-required first. The resulting APKs must match:
+`mihomo-meta` provides Mihomo and owns the alternative mapping
+`/usr/bin/mihomo -> /usr/libexec/mihomo`. `nikki` depends on Mihomo,
+firewall4, ip-full, curl, yq and kernel modules. `luci-app-nikki` depends on
+`nikki`.
 
-- OpenWrt release branch: 25.12
-- Package architecture: `i386_pentium4`
-- The exact target kernel ABI used by the generated firmware
-- The exact package ABI/build metadata accepted by APK
+The previous standalone Mihomo binary installer must not overwrite the package
+managed binary. Nikki is the only manager for this instance of Mihomo.
 
-The package set should include `mihomo` and `luci-app-mihomo`; include
-translation packages only when deliberately selected. Prefer a signed local
-APK repository and verify package metadata/signatures. Do not use
-`--allow-untrusted` for production firmware.
+## Firewall and activation safety
 
-## Firewall and network safety
+The upstream package adds a Firewall4 UCI include named `firewall.nikki`
+through UCI defaults. Its script conditionally adds accept rules for the TUN
+device only when Nikki is enabled and transparent proxying is enabled.
 
-The selected upstream core package can install nftables hooks and UCI defaults.
-Before enabling it, inspect its init script, firewall include, UCI-defaults
-and migration script. Keep the first install non-invasive:
+The upstream default sets `nikki.config.enabled=0`; therefore the service
+does not start. The integration does not enable Nikki, start its service,
+reload Firewall4, or alter WAN/LAN, DHCP, DNS, Wi-Fi or routing.
 
-1. Install UI/core packages.
-2. Keep the service disabled.
-3. Keep transparent proxy disabled.
-4. Preserve current WAN/LAN/DHCP/DNS configuration.
-5. Enable TProxy/TUN only after validating the selected mode and kernel modules.
+Note: package installation still registers the conditional firewall include.
+This is an upstream package default, not runtime activation of transparent
+proxying. Review it on first boot before enabling Nikki.
 
-## References
+## Build method
 
-- https://github.com/MinimaxFlora/luci-app-mihomo
+ImageBuilder cannot compile Mihomo's Go sources. `scripts/integrate-nikki.sh`
+downloads the official package set for the pinned release/architecture:
+`mihomo-meta`, `nikki`, and `luci-app-nikki`. APK metadata and files are
+required before firmware build proceeds. The public key is retained in the
+work directory; unsigned installation is prohibited.
+
+The workflow must verify package signatures and make the local APK repository
+available to ImageBuilder. Fail the build if signature verification fails or
+the exact package set is unavailable.
+
+## Manual test after boot
+
+1. Open LuCI and confirm the Nikki menu is present.
+2. Confirm all three packages are installed.
+3. Verify `uci get nikki.config.enabled` returns `0`.
+4. Inspect `uci show firewall.nikki` and `fw4 print`.
+5. Add/import a profile and validate it while service remains disabled.
+6. Only after backup and review, enable Nikki manually and test one routing
+   mode. Do not run Nikki and PassWall2 transparent-proxy modes simultaneously.
+
+## Upstream
+
 - https://github.com/nikkinikki-org/OpenWrt-nikki
 - https://github.com/MetaCubeX/mihomo
+- https://github.com/Openwrt-Passwall/openwrt-passwall2
