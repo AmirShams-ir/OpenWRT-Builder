@@ -34,6 +34,7 @@ jobs:
           OPENWRT_PROFILE: "generic"
           KERNEL_PARTSIZE_MIB: "100"
           ROOTFS_PARTSIZE_MIB: "5120"
+          SMARTNET_WIFI_KEY: ${{ secrets.SMARTNET_WIFI_KEY }}
           BUILD_ROOT: ${{ runner.temp }}/smartnet-openwrt-build
           OUTPUT_DIR: ${{ github.workspace }}/output
         run: bash scripts/build.sh
