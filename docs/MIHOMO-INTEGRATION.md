@@ -2,8 +2,8 @@
 
 ## Selected architecture
 
-Nikki is the dedicated Mihomo manager. PassWall2 remains an independent manager
-for its own supported cores.
+Nikki is the dedicated Mihomo manager. PassWall2 remains independent for its
+supported cores.
 
 - Core package: `mihomo-meta` (provides Mihomo)
 - Manager/service: `nikki`
@@ -11,70 +11,77 @@ for its own supported cores.
 - Other independent cores: sing-box and Xray
 - Other manager: PassWall2
 
-Do not install MinimaxFlora's `luci-app-mihomo`; it is not the selected UI.
+Do not install MinimaxFlora's `luci-app-mihomo`; Nikki is the selected UI.
 
 ## Target
 
-The Clientron image is OpenWrt 25.12.6, x86/generic, package architecture
-`i386_pentium4`. Nikki's matching feed branch is `openwrt-25.12`.
+Clientron uses OpenWrt 25.12.6, x86/generic, APK architecture
+`i386_pentium4`.
 
-Official feed:
-https://nikkinikki.pages.dev/openwrt-25.12/i386_pentium4/nikki
+## Package build and delivery
 
-## Installation ownership
+The Nikki upstream repository is:
 
-ImageBuilder builds the OS and base packages only. Nikki is installed later by
-`scripts/modules/09-mihomo-luci.sh`, invoked by `scripts/bootstrap.sh`.
+https://github.com/nikkinikki-org/OpenWrt-nikki
+
+Its official GitHub Actions build matrix includes both
+`i386_pentium4` and `openwrt-25.12`. However, its published Pages feed is
+not accessible from the Clientron network in Iran, and its release assets do
+not currently provide a matching i386 package archive.
+
+Smart-Net therefore builds the three required packages from the official
+Nikki source using the official OpenWrt SDK action in
+`.github/workflows/build.yml`. The workflow uploads them in the same
+30-day GitHub Actions artifact as the firmware. This is a CI build stage,
+not an ImageBuilder package injection: ImageBuilder still builds only the OS
+and base packages.
+
+The runtime module `scripts/modules/09-mihomo-luci.sh` queries this
+repository's GitHub Actions API, locates the latest successful artifact,
+downloads it from GitHub, checks the package SHA256SUMS file, and installs
+the three architecture-matched APK files.
+
+## Runtime installation and safety
 
 The module:
-1. Detects OpenWrt release and package architecture.
-2. Uses only the matching official Nikki feed.
-3. Installs `mihomo-meta`, `nikki`, and `luci-app-nikki`.
-4. Verifies all three packages are installed.
-5. Does not start/enable Nikki, reload Firewall4, or change routing/DNS.
+1. Requires OpenWrt 25.12 and `i386_pentium4`.
+2. Downloads the matching Smart-Net artifact from GitHub Actions.
+3. Verifies APK checksums before installation.
+4. Installs `mihomo-meta`, `nikki`, and `luci-app-nikki`.
+5. Lets APK resolve runtime dependencies from the configured official OpenWrt feeds.
+6. Does not start/enable Nikki, reload Firewall4, or alter routing/DNS.
 
-Module 06 no longer installs a standalone Mihomo binary. The Nikki package owns
-the Mihomo core path and service lifecycle.
+The upstream Nikki install script uses `apk add --allow-untrusted` for its
+own feed. Smart-Net's artifact method does not pretend a SHA256 checksum is
+a cryptographic signature; the checksum verifies consistency with the
+artifact's manifest, while trust in the artifact is based on the HTTPS
+GitHub Actions artifact delivery and repository workflow.
 
-## Upstream install behavior and trust note
+## Firewall and activation
 
-The official Nikki `install.sh` uses:
+The Nikki package registers a Firewall4 UCI include named
+`firewall.nikki`. Its rules are gated by Nikki's own configuration. The
+module does not change `nikki.config.enabled`, start the service, or reload
+Firewall4. Review the include and back up configuration before enabling Nikki.
 
-```sh
-apk add --allow-untrusted -X "$feed_url/packages.adb" mihomo-meta nikki luci-app-nikki
-```
+Test Nikki alone; do not simultaneously enable PassWall2 transparent proxying.
 
-The runtime module follows this documented upstream method. Important: the
-`--allow-untrusted` option means APK does not enforce normal repository
-signature trust for those packages. This is upstream's published install
-procedure; do not describe it as cryptographic signature verification.
+## First build and test
 
-## Firewall and activation safety
+1. Run the `Build Smart-Net OpenWrt` workflow on the feature branch manually.
+2. Confirm the SDK package-build step succeeds and the artifact contains the
+   three APKs plus `SHA256SUMS`.
+3. On Clientron, pull the feature branch and run:
+   `sh scripts/modules/09-mihomo-luci.sh`.
+4. Verify:
+   `apk info -e mihomo-meta`,
+   `apk info -e nikki`,
+   `apk info -e luci-app-nikki`,
+   `mihomo -v`, and `uci get nikki.config.enabled`.
+5. Open LuCI and confirm the Nikki interface; keep the service disabled
+   until its profile and firewall behavior are reviewed.
 
-The Nikki package registers a Firewall4 UCI include named `firewall.nikki`
-during package installation. The include script checks
-`nikki.config.enabled` and only inserts TUN-device rules when Nikki is enabled,
-not core-only, and proxy mode is enabled.
-
-The upstream default config sets `nikki.config.enabled=0`. The module does not
-change that setting, start/enable the service, or reload Firewall4. Review the
-include on first boot before enabling Nikki.
-
-## Test on Clientron
-
-1. Boot the normal Smart-Net image and confirm WAN/LAN and LuCI work.
-2. Run `sh /root/OpenWRT-Builder/scripts/bootstrap.sh` (or the installed
-   project path) as root.
-3. Check the bootstrap report for the three Nikki packages.
-4. Verify `uci get nikki.config.enabled` returns `0`.
-5. Open LuCI and confirm the Nikki menu and dashboard render.
-6. Import a test profile. Keep Nikki disabled while checking the profile.
-7. Inspect `uci show firewall.nikki` and `fw4 print`.
-8. Back up the router configuration before manually enabling Nikki.
-9. Test Nikki alone first; do not simultaneously enable PassWall2 transparent
-   proxying.
-
-## Upstream
+## Upstream sources
 
 - https://github.com/nikkinikki-org/OpenWrt-nikki
 - https://github.com/MetaCubeX/mihomo
