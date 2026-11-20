@@ -63,10 +63,10 @@ case "$DISK_SECTORS:$P1_START:$P1_SIZE:$P2_START:$P2_SIZE" in *[!0-9:]*|:*|*::*)
 [ "$DISK_SECTORS" -gt 0 ] || die "Invalid disk capacity."
 
 TABLE="$(sfdisk --dump "$DISK" 2>/dev/null)" || die "Cannot read partition table."
-printf '%s\\n' "$TABLE" | grep -q '^label: dos$' || die "Expected DOS/MBR partition table."
-printf '%s\\n' "$TABLE" | grep -q "^${DISK}1[[:space:]]*=" || die "Partition 1 missing."
-printf '%s\\n' "$TABLE" | grep -q "^${DISK}2[[:space:]]*=" || die "Partition 2 missing."
-if printf '%s\\n' "$TABLE" | grep -Eq "^${DISK}[3-9][0-9]*[[:space:]]*="; then
+printf '%s\n' "$TABLE" | grep -q '^label: dos$' || die "Expected DOS/MBR partition table."
+printf '%s\n' "$TABLE" | grep -q "^${DISK}1[[:space:]]*=" || die "Partition 1 missing."
+printf '%s\n' "$TABLE" | grep -q "^${DISK}2[[:space:]]*=" || die "Partition 2 missing."
+if printf '%s\n' "$TABLE" | grep -Eq "^${DISK}[3-9][0-9]*[[:space:]]*="; then
   die "Unexpected partition beyond partition 2; refusing to alter disk."
 fi
 
