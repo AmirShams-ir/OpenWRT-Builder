@@ -13,61 +13,66 @@ for its own supported cores.
 
 Do not install MinimaxFlora's `luci-app-mihomo`; it is not the selected UI.
 
-## Pinned target
+## Target
 
-- OpenWrt 25.12.6
-- Target x86/generic
-- Package architecture i386_pentium4
-- Nikki feed branch openwrt-25.12
+The Clientron image is OpenWrt 25.12.6, x86/generic, package architecture
+`i386_pentium4`. Nikki's matching feed branch is `openwrt-25.12`.
 
 Official feed:
 https://nikkinikki.pages.dev/openwrt-25.12/i386_pentium4/nikki
 
-## Package ownership
+## Installation ownership
 
-`mihomo-meta` provides Mihomo and owns the alternative mapping
-`/usr/bin/mihomo -> /usr/libexec/mihomo`. `nikki` depends on Mihomo,
-firewall4, ip-full, curl, yq and kernel modules. `luci-app-nikki` depends on
-`nikki`.
+ImageBuilder builds the OS and base packages only. Nikki is installed later by
+`scripts/modules/09-mihomo-luci.sh`, invoked by `scripts/bootstrap.sh`.
 
-The previous standalone Mihomo binary installer must not overwrite the package
-managed binary. Nikki is the only manager for this instance of Mihomo.
+The module:
+1. Detects OpenWrt release and package architecture.
+2. Uses only the matching official Nikki feed.
+3. Installs `mihomo-meta`, `nikki`, and `luci-app-nikki`.
+4. Verifies all three packages are installed.
+5. Does not start/enable Nikki, reload Firewall4, or change routing/DNS.
+
+Module 06 no longer installs a standalone Mihomo binary. The Nikki package owns
+the Mihomo core path and service lifecycle.
+
+## Upstream install behavior and trust note
+
+The official Nikki `install.sh` uses:
+
+```sh
+apk add --allow-untrusted -X "$feed_url/packages.adb" mihomo-meta nikki luci-app-nikki
+```
+
+The runtime module follows this documented upstream method. Important: the
+`--allow-untrusted` option means APK does not enforce normal repository
+signature trust for those packages. This is upstream's published install
+procedure; do not describe it as cryptographic signature verification.
 
 ## Firewall and activation safety
 
-The upstream package adds a Firewall4 UCI include named `firewall.nikki`
-through UCI defaults. Its script conditionally adds accept rules for the TUN
-device only when Nikki is enabled and transparent proxying is enabled.
+The Nikki package registers a Firewall4 UCI include named `firewall.nikki`
+during package installation. The include script checks
+`nikki.config.enabled` and only inserts TUN-device rules when Nikki is enabled,
+not core-only, and proxy mode is enabled.
 
-The upstream default sets `nikki.config.enabled=0`; therefore the service
-does not start. The integration does not enable Nikki, start its service,
-reload Firewall4, or alter WAN/LAN, DHCP, DNS, Wi-Fi or routing.
+The upstream default config sets `nikki.config.enabled=0`. The module does not
+change that setting, start/enable the service, or reload Firewall4. Review the
+include on first boot before enabling Nikki.
 
-Note: package installation still registers the conditional firewall include.
-This is an upstream package default, not runtime activation of transparent
-proxying. Review it on first boot before enabling Nikki.
+## Test on Clientron
 
-## Build method
-
-ImageBuilder cannot compile Mihomo's Go sources. `scripts/integrate-nikki.sh`
-downloads the official package set for the pinned release/architecture:
-`mihomo-meta`, `nikki`, and `luci-app-nikki`. APK metadata and files are
-required before firmware build proceeds. The public key is retained in the
-work directory; unsigned installation is prohibited.
-
-The workflow must verify package signatures and make the local APK repository
-available to ImageBuilder. Fail the build if signature verification fails or
-the exact package set is unavailable.
-
-## Manual test after boot
-
-1. Open LuCI and confirm the Nikki menu is present.
-2. Confirm all three packages are installed.
-3. Verify `uci get nikki.config.enabled` returns `0`.
-4. Inspect `uci show firewall.nikki` and `fw4 print`.
-5. Add/import a profile and validate it while service remains disabled.
-6. Only after backup and review, enable Nikki manually and test one routing
-   mode. Do not run Nikki and PassWall2 transparent-proxy modes simultaneously.
+1. Boot the normal Smart-Net image and confirm WAN/LAN and LuCI work.
+2. Run `sh /root/OpenWRT-Builder/scripts/bootstrap.sh` (or the installed
+   project path) as root.
+3. Check the bootstrap report for the three Nikki packages.
+4. Verify `uci get nikki.config.enabled` returns `0`.
+5. Open LuCI and confirm the Nikki menu and dashboard render.
+6. Import a test profile. Keep Nikki disabled while checking the profile.
+7. Inspect `uci show firewall.nikki` and `fw4 print`.
+8. Back up the router configuration before manually enabling Nikki.
+9. Test Nikki alone first; do not simultaneously enable PassWall2 transparent
+   proxying.
 
 ## Upstream
 
