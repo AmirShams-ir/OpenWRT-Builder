@@ -205,7 +205,7 @@ install_passwall2_apk() {
     key_url="https://sourceforge.net/projects/openwrt-passwall-build/files/apk.pub/download"
     key_sha256="52802b143489214e13b78f96599a147a638205cc22d9dd6d71229504e38ddc00"
     key_path="/etc/apk/keys/passwall.pub"
-    key_tmp="/tmp/passwall-apk-key.$"
+    key_tmp="/tmp/passwall-apk-key-$"
     feeds="/etc/apk/repositories.d/customfeeds.list"
     base_url="https://sourceforge.net/projects/openwrt-passwall-build/files/releases/packages-$release/$arch"
 
