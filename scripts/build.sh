@@ -80,45 +80,36 @@ PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 PACKAGES="$(grep -Ev '^[[:space:]]*(#|$)' "$PACKAGES_FILE" | xargs || true)"
 [[ -n "$PACKAGES" ]] || die "Package list is empty."
 
-# Inject Wi-Fi credential only at build time. Never write it to the git workspace.
+# Build from a disposable overlay copy. Secrets never enter tracked files.
+[[ -d "$FILES_DIR/etc/config" ]] || die "Missing files/etc/config overlay."
+BUILD_FILES_DIR="$WORK_DIR/files-overlay"
+rm -rf "$BUILD_FILES_DIR"
+mkdir -p "$BUILD_FILES_DIR"
+cp -a "$FILES_DIR/." "$BUILD_FILES_DIR/"
 WIFI_KEY="${SMARTNET_WIFI_KEY:-}"
-if [[ -z "$WIFI_KEY" ]]; then
-  log "SMARTNET_WIFI_KEY is unset; Wi-Fi will be shipped disabled for safety."
-  sed -i "s|option disabled '0'|option disabled '1'|" "$FILES_DIR/etc/config/wireless"
-else
+if [[ -n "$WIFI_KEY" ]]; then
   [[ "${#WIFI_KEY}" -ge 8 ]] || die "SMARTNET_WIFI_KEY must contain at least 8 characters."
   export WIFI_KEY
-  python3 - "$FILES_DIR/etc/config/wireless" <<'PY'
+  python3 - "$BUILD_FILES_DIR/etc/config/wireless" <<'PY'
 import os, pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-s = s.replace("__SMARTNET_WIFI_KEY__", os.environ["WIFI_KEY"].replace("\\", "\\\\").replace("'", "\\'"))
+key = os.environ["WIFI_KEY"]
+if len(key) < 8 or len(key) > 63:
+    raise SystemExit("SMARTNET_WIFI_KEY must be 8-63 ASCII characters for WPA2-PSK.")
+if not key.isascii():
+    raise SystemExit("SMARTNET_WIFI_KEY must be ASCII for WPA2-PSK.")
+s = s.replace("__SMARTNET_WIFI_KEY__", key.replace("\\\\", "\\\\\\\\").replace("'", "\\\\'"))
 p.write_text(s)
 PY
-fi
-
-FILES_ARGS=()
-if [[ -d "$FILES_DIR" ]] && find "$FILES_DIR" -type f ! -name '.gitkeep' -print -quit | grep -q .; then
-  FILES_ARGS+=("FILES=$FILES_DIR")
-  log "Using filesystem overlay: $FILES_DIR"
-else die "Network overlay directory is empty."; fi
-
-log "Generating package manifest"
-(cd "$BUILDER_DIR" && TMPDIR="$WORK_DIR/tmp" make manifest PROFILE="$OPENWRT_PROFILE" PACKAGES="$PACKAGES") > "$OUTPUT_DIR/manifest.txt"
-
-log "Running ImageBuilder"
-BUILD_ARGS=(image "PROFILE=$OPENWRT_PROFILE" "PACKAGES=$PACKAGES" "BIN_DIR=$OUTPUT_DIR"
-  "CONFIG_TARGET_KERNEL_PARTSIZE=$KERNEL_PARTSIZE_MIB"
-  "CONFIG_TARGET_ROOTFS_PARTSIZE=$ROOTFS_PARTSIZE_MIB")
-BUILD_ARGS+=("${FILES_ARGS[@]}")
-(cd "$BUILDER_DIR" && PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s)
-
-# Restore the tracked template after secret substitution; the secret must not remain in workspace.
-if [[ -n "$WIFI_KEY" ]]; then
-  sed -i "s|option key .*|option key '__SMARTNET_WIFI_KEY__'|" "$FILES_DIR/etc/config/wireless"
+  log "Wi-Fi profile enabled using GitHub Actions secret."
 else
-  sed -i "s|option disabled '1'|option disabled '0'|" "$FILES_DIR/etc/config/wireless"
+  sed -i "s/option disabled '0'/option disabled '1'/" "$BUILD_FILES_DIR/etc/config/wireless"
+  log "SMARTNET_WIFI_KEY is unset; Wi-Fi will be disabled in this image."
 fi
+
+FILES_ARGS=("FILES=$BUILD_FILES_DIR")
+log "Using filesystem overlay: $BUILD_FILES_DIR"
 
 mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*ext4-combined.img.gz' ! -name '*efi*' -print)
 [[ "${#IMAGES[@]}" -eq 1 ]] || die "Expected one BIOS ext4 combined image; found ${#IMAGES[@]}."
