@@ -20,6 +20,7 @@ tcpdump
 luci-ssl
 # Disk partitioning, filesystem, and persistent mount support for Installer 99
 fdisk
+blkid
 block-mount
 e2fsprogs
 partx-utils
