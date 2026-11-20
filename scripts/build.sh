@@ -75,9 +75,28 @@ unset_config_value CONFIG_TARGET_ROOTFS_SQUASHFS
 set_config_value CONFIG_TARGET_KERNEL_PARTSIZE "$KERNEL_PARTSIZE_MIB"
 set_config_value CONFIG_TARGET_ROOTFS_PARTSIZE "$ROOTFS_PARTSIZE_MIB"
 
+# Nikki package set: fetched from official feed and staged into the local ImageBuilder repo.
+NIKKI_PACKAGES=""
+if [[ "${SMARTNET_NIKKI:-1}" = "1" ]]; then
+  bash "$ROOT_DIR/scripts/build-nikki-packages.sh" "$WORK_DIR" "$BUILDER_DIR"
+  NIKKI_APK_DIR="$WORK_DIR/nikki-apks"
+  # Verify APK payloads and the signed upstream repository index with apk-tools.
+  command -v apk >/dev/null 2>&1 || die "apk-tools is required to verify Nikki package signatures."
+  # Use the upstream database signature; fail closed if apk cannot verify it.
+  apk verify --keys-dir "$WORK_DIR/nikki-feed" "$NIKKI_APK_DIR"/*.apk >/dev/null 2>&1 || die "Nikki APK signature verification failed."
+  mkdir -p "$BUILDER_DIR/packages/nikki"
+  cp -f "$NIKKI_APK_DIR"/*.apk "$BUILDER_DIR/packages/nikki/"
+  cp -f "$NIKKI_APK_DIR/packages.adb" "$BUILDER_DIR/packages/nikki/"
+  NIKKI_PACKAGES="mihomo-meta nikki luci-app-nikki"
+  log "Nikki package artifacts staged for ImageBuilder."
+fi
+
 PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 [[ -f "$PACKAGES_FILE" ]] || die "Missing config/packages.txt"
 PACKAGES="$(grep -Ev '^[[:space:]]*(#|$)' "$PACKAGES_FILE" | xargs || true)"
+if [[ -n "$NIKKI_PACKAGES" ]]; then
+  PACKAGES="$PACKAGES $NIKKI_PACKAGES"
+fi
 [[ -n "$PACKAGES" ]] || die "Package list is empty."
 
 # Build from a disposable overlay copy. Secrets never enter tracked files.
