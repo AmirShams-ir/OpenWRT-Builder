@@ -1,9 +1,8 @@
 #!/bin/sh
 # Smart-Net proxy stack installer for OpenWrt 25.12 / apk.
-# Installs trusted-feed sing-box/Xray and PassWall2 packages. Nikki installs
-# Mihomo at runtime in module 09; this module never installs a second core.
-# Installs
-# fw4/nftables dependencies. Does not enable services or alter
+# Installs trusted-feed sing-box/Xray and PassWall2 packages.
+# Nikki installs Mihomo at runtime in module 09; no competing core is installed.
+# Does not enable services or alter
 # routing, firewall, DNS, WAN/LAN, or wireless configuration.
 
 set -eu
