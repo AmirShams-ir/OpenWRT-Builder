@@ -37,32 +37,22 @@ log "OpenWrt ${OPENWRT_VERSION} / ${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
 log "Boot: ${KERNEL_PARTSIZE_MIB} MiB; Root: ${ROOTFS_PARTSIZE_MIB} MiB"
 
 ARCHIVE_PATH="$CACHE_DIR/$BUILDER_NAME"
-curl --fail --location --retry 3 --retry-delay 2 \
-  --output "$ARCHIVE_PATH" "${BASE_URL}/${BUILDER_NAME}"
-curl --fail --location --retry 3 --retry-delay 2 \
-  --output "$CACHE_DIR/sha256sums" "${BASE_URL}/sha256sums"
+curl --fail --location --retry 3 --retry-delay 2 --output "$ARCHIVE_PATH" "${BASE_URL}/${BUILDER_NAME}"
+curl --fail --location --retry 3 --retry-delay 2 --output "$CACHE_DIR/sha256sums" "${BASE_URL}/sha256sums"
 
 awk -v filename="$BUILDER_NAME" '
-    NF >= 2 {
-      listed_name = $2
-      if (substr(listed_name, 1, 1) == "*") listed_name = substr(listed_name, 2)
-      if (listed_name == filename) {
-        print $1 "  " filename
-        found = 1
-        exit
-      }
-    }
-    END {
-      if (!found) exit 1
-    }
-  ' "$CACHE_DIR/sha256sums" > "$CACHE_DIR/builder.sha256"
+  NF >= 2 {
+    listed_name = $2
+    if (substr(listed_name, 1, 1) == "*") listed_name = substr(listed_name, 2)
+    if (listed_name == filename) { print $1 "  " filename; found = 1; exit }
+  }
+  END { if (!found) exit 1 }
+' "$CACHE_DIR/sha256sums" > "$CACHE_DIR/builder.sha256"
 [[ -s "$CACHE_DIR/builder.sha256" ]] || die "Builder archive missing from official checksum list."
 (cd "$CACHE_DIR" && sha256sum --check --strict builder.sha256)
 
 BUILDER_DIR="$WORK_DIR/openwrt-imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}.Linux-x86_64"
-if [[ ! -d "$BUILDER_DIR" ]]; then
-  tar --zstd -xf "$ARCHIVE_PATH" -C "$WORK_DIR"
-fi
+if [[ ! -d "$BUILDER_DIR" ]]; then tar --zstd -xf "$ARCHIVE_PATH" -C "$WORK_DIR"; fi
 [[ -f "$BUILDER_DIR/Makefile" && -f "$BUILDER_DIR/.config" ]] || die "Invalid ImageBuilder archive."
 
 CONFIG_FILE="$BUILDER_DIR/.config"
@@ -72,19 +62,14 @@ set_config_value() {
     sed -i "s|^${key}=.*$|${key}=${value}|" "$CONFIG_FILE"
   elif grep -q "^# ${key} is not set$" "$CONFIG_FILE"; then
     sed -i "s|^# ${key} is not set$|${key}=${value}|" "$CONFIG_FILE"
-  else
-    printf '%s=%s\n' "$key" "$value" >> "$CONFIG_FILE"
-  fi
+  else printf '%s=%s\n' "$key" "$value" >> "$CONFIG_FILE"; fi
 }
 unset_config_value() {
   local key="$1"
   if grep -q "^${key}=" "$CONFIG_FILE"; then
     sed -i "s|^${key}=.*$|# ${key} is not set|" "$CONFIG_FILE"
-  elif ! grep -q "^# ${key} is not set$" "$CONFIG_FILE"; then
-    printf '# %s is not set\n' "$key" >> "$CONFIG_FILE"
-  fi
+  elif ! grep -q "^# ${key} is not set$" "$CONFIG_FILE"; then printf '# %s is not set\n' "$key" >> "$CONFIG_FILE"; fi
 }
-
 set_config_value CONFIG_TARGET_ROOTFS_EXT4FS y
 unset_config_value CONFIG_TARGET_ROOTFS_SQUASHFS
 set_config_value CONFIG_TARGET_KERNEL_PARTSIZE "$KERNEL_PARTSIZE_MIB"
@@ -95,44 +80,51 @@ PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 PACKAGES="$(grep -Ev '^[[:space:]]*(#|$)' "$PACKAGES_FILE" | xargs || true)"
 [[ -n "$PACKAGES" ]] || die "Package list is empty."
 
+# Inject Wi-Fi credential only at build time. Never write it to the git workspace.
+WIFI_KEY="${SMARTNET_WIFI_KEY:-}"
+if [[ -z "$WIFI_KEY" ]]; then
+  log "SMARTNET_WIFI_KEY is unset; Wi-Fi will be shipped disabled for safety."
+  sed -i "s|option disabled '0'|option disabled '1'|" "$FILES_DIR/etc/config/wireless"
+else
+  [[ "${#WIFI_KEY}" -ge 8 ]] || die "SMARTNET_WIFI_KEY must contain at least 8 characters."
+  export WIFI_KEY
+  python3 - "$FILES_DIR/etc/config/wireless" <<'PY'
+import os, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+s = s.replace("__SMARTNET_WIFI_KEY__", os.environ["WIFI_KEY"].replace("\\", "\\\\").replace("'", "\\'"))
+p.write_text(s)
+PY
+fi
+
 FILES_ARGS=()
 if [[ -d "$FILES_DIR" ]] && find "$FILES_DIR" -type f ! -name '.gitkeep' -print -quit | grep -q .; then
   FILES_ARGS+=("FILES=$FILES_DIR")
   log "Using filesystem overlay: $FILES_DIR"
-else
-  log "No filesystem overlay: keeping stock first-boot network defaults"
-fi
+else die "Network overlay directory is empty."; fi
 
 log "Generating package manifest"
-(
-  cd "$BUILDER_DIR"
-  TMPDIR="$WORK_DIR/tmp" make manifest PROFILE="$OPENWRT_PROFILE" PACKAGES="$PACKAGES"
-) > "$OUTPUT_DIR/manifest.txt"
+(cd "$BUILDER_DIR" && TMPDIR="$WORK_DIR/tmp" make manifest PROFILE="$OPENWRT_PROFILE" PACKAGES="$PACKAGES") > "$OUTPUT_DIR/manifest.txt"
 
 log "Running ImageBuilder"
-BUILD_ARGS=(
-  image
-  "PROFILE=$OPENWRT_PROFILE"
-  "PACKAGES=$PACKAGES"
-  "BIN_DIR=$OUTPUT_DIR"
+BUILD_ARGS=(image "PROFILE=$OPENWRT_PROFILE" "PACKAGES=$PACKAGES" "BIN_DIR=$OUTPUT_DIR"
   "CONFIG_TARGET_KERNEL_PARTSIZE=$KERNEL_PARTSIZE_MIB"
-  "CONFIG_TARGET_ROOTFS_PARTSIZE=$ROOTFS_PARTSIZE_MIB"
-)
+  "CONFIG_TARGET_ROOTFS_PARTSIZE=$ROOTFS_PARTSIZE_MIB")
 BUILD_ARGS+=("${FILES_ARGS[@]}")
+(cd "$BUILDER_DIR" && PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s)
 
-(
-  cd "$BUILDER_DIR"
-  PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s
-)
+# Restore the tracked template after secret substitution; the secret must not remain in workspace.
+if [[ -n "$WIFI_KEY" ]]; then
+  sed -i "s|option key .*|option key '__SMARTNET_WIFI_KEY__'|" "$FILES_DIR/etc/config/wireless"
+else
+  sed -i "s|option disabled '1'|option disabled '0'|" "$FILES_DIR/etc/config/wireless"
+fi
 
 mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*ext4-combined.img.gz' ! -name '*efi*' -print)
 [[ "${#IMAGES[@]}" -eq 1 ]] || die "Expected one BIOS ext4 combined image; found ${#IMAGES[@]}."
 IMAGE_PATH="${IMAGES[0]}"
-
 gzip --test "$IMAGE_PATH"
-python3 "$ROOT_DIR/scripts/verify-image.py" "$IMAGE_PATH" \
-  --kernel-mib "$KERNEL_PARTSIZE_MIB" --root-mib "$ROOTFS_PARTSIZE_MIB"
-
+python3 "$ROOT_DIR/scripts/verify-image.py" "$IMAGE_PATH" --kernel-mib "$KERNEL_PARTSIZE_MIB" --root-mib "$ROOTFS_PARTSIZE_MIB"
 sha256sum "$IMAGE_PATH" > "$OUTPUT_DIR/sha256sums.txt"
 cat > "$OUTPUT_DIR/build-info.txt" <<EOF
 Smart-Net OpenWrt Build
@@ -143,8 +135,8 @@ Filesystem: ext4
 Boot partition: ${KERNEL_PARTSIZE_MIB} MiB
 Root partition: ${ROOTFS_PARTSIZE_MIB} MiB
 Image: $(basename "$IMAGE_PATH")
-Home partition: deferred to a disk-size-aware installation step.
+Home partition: deferred to disk-size-aware installer.
+Network profile: static WAN / static LAN / firewall / DHCP / ath9k Wi-Fi.
 EOF
-
 log "Build completed: $IMAGE_PATH"
 log "SHA256: $(awk '{print $1}' "$OUTPUT_DIR/sha256sums.txt")"
