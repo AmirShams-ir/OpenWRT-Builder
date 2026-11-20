@@ -1,5 +1,18 @@
-# Additional packages for the Clientron E832 profile.
-# ImageBuilder resolves required dependencies automatically.
+# Clientron E832 / OpenWrt 25.12.6 network packages
+# Generic x86 already includes baseline Ethernet support (including r8169).
+# ath9k is the observed Qualcomm Atheros PCI Wi-Fi driver.
 kmod-ath9k
 wpad-basic-mbedtls
 iw
+wireless-regdb
+kmod-r8169
+r8169-firmware
+ppp
+ppp-mod-pppoe
+resolveip
+ca-bundle
+curl
+wget-ssl
+ip-full
+ethtool
+tcpdump
