@@ -75,20 +75,10 @@ unset_config_value CONFIG_TARGET_ROOTFS_SQUASHFS
 set_config_value CONFIG_TARGET_KERNEL_PARTSIZE "$KERNEL_PARTSIZE_MIB"
 set_config_value CONFIG_TARGET_ROOTFS_PARTSIZE "$ROOTFS_PARTSIZE_MIB"
 
-# Nikki feed preflight. Actual package injection is gated until the local APK
-# repository is verified by the matching OpenWrt 25.12 apk-tools environment.
-NIKKI_PACKAGES=""
-if [[ "${SMARTNET_NIKKI:-1}" = "1" ]]; then
-  bash "$ROOT_DIR/scripts/build-nikki-packages.sh" "$WORK_DIR" "$BUILDER_DIR"
-  die "Nikki APK signing and local ImageBuilder repository wiring need validation with matching OpenWrt 25.12 apk-tools. Baseline build: set SMARTNET_NIKKI=0."
-fi
 
 PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 [[ -f "$PACKAGES_FILE" ]] || die "Missing config/packages.txt"
 PACKAGES="$(grep -Ev '^[[:space:]]*(#|$)' "$PACKAGES_FILE" | xargs || true)"
-if [[ -n "$NIKKI_PACKAGES" ]]; then
-  PACKAGES="$PACKAGES $NIKKI_PACKAGES"
-fi
 [[ -n "$PACKAGES" ]] || die "Package list is empty."
 
 # Build from a disposable overlay copy. Secrets never enter tracked files.
