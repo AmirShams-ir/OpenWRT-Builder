@@ -133,8 +133,12 @@ BUILD_ARGS+=("${FILES_ARGS[@]}")
   PATH="$CLEAN_PATH" TMPDIR="$WORK_DIR/tmp" make "${BUILD_ARGS[@]}" V=s
 )
 
-mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*ext4-combined.img.gz' ! -name '*efi*' -print)
-[[ "${#IMAGES[@]}" -eq 1 ]] || die "Expected one BIOS ext4 combined image; found ${#IMAGES[@]}."
+mapfile -t IMAGES < <(find "$OUTPUT_DIR" -maxdepth 1 -type f \\( -name '*ext4-combined.img.gz' -o -name '*combined-ext4.img.gz' -o -name '*combined.img.gz' \\) ! -name '*efi*' -print)
+if [[ "${#IMAGES[@]}" -ne 1 ]]; then
+  log "ImageBuilder output files:"
+  find "$OUTPUT_DIR" -maxdepth 1 -type f -printf '%f\\n' | sort
+  die "Expected one BIOS combined ext4 image; found ${#IMAGES[@]}."
+fi
 IMAGE_PATH="${IMAGES[0]}"
 gzip --test "$IMAGE_PATH"
 python3 "$ROOT_DIR/scripts/verify-image.py" "$IMAGE_PATH" --kernel-mib "$KERNEL_PARTSIZE_MIB" --root-mib "$ROOTFS_PARTSIZE_MIB"
