@@ -23,3 +23,5 @@ fdisk
 block-mount
 e2fsprogs
 partx-utils
+# sfdisk ships with util-linux fdisk tools on OpenWrt
+sfdisk
