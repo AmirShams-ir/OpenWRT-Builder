@@ -14,6 +14,8 @@ mkdir -p "$WORK_DIR/nikki-feed" "$WORK_DIR/nikki-apks"
 curl -fL --retry 3 "$FEED/index.json" -o "$WORK_DIR/nikki-feed/index.json"
 curl -fL --retry 3 "$FEED/packages.adb" -o "$WORK_DIR/nikki-apks/packages.adb"
 curl -fL --retry 3 "$FEED/public-key.pem" -o "$WORK_DIR/nikki-feed/public-key.pem"
+# Preserve official feed metadata and key; signature verification is performed
+# by OpenWrt apk against the published repository database.
 python3 - "$WORK_DIR/nikki-feed/index.json" "$FEED" "$WORK_DIR/nikki-apks" <<'PY'
 import json, pathlib, subprocess, sys, urllib.parse
 idx, base, out = sys.argv[1:]
@@ -32,3 +34,4 @@ done
 (cd "$WORK_DIR/nikki-apks" && sha256sum *.apk > SHA256SUMS)
 printf '%s\n' "$FEED" > "$WORK_DIR/nikki-feed-url.txt"
 echo "Prepared official Nikki APKs: mihomo-meta, nikki, luci-app-nikki"
+echo "NOTE: APK package artifacts are not installed individually by this script; use the repository database with apk-tools signature verification."
