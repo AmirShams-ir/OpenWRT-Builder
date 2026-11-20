@@ -9,7 +9,7 @@ on:
       - "files/**"
       - "scripts/**"
 permissions:
-  contents: read
+  contents: write
   actions: read
 concurrency:
   group: smartnet-openwrt-${{ github.ref }}
@@ -37,7 +37,7 @@ jobs:
           PACKAGES: mihomo-meta nikki luci-app-nikki
           NO_REFRESH_CHECK: true
 
-      - name: Prepare Nikki package feed
+      - name: Prepare Nikki package release archive
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -49,8 +49,6 @@ jobs:
             [[ -n "$file" ]] || { echo "Missing Nikki package: $pkg" >&2; exit 1; }
             cp -f "$file" "$DEST/"
           done
-          # Keep upstream package metadata alongside the APK files when present.
-          find "$SRC" -maxdepth 1 -type f \\( -name 'packages.adb' -o -name '*.SIGN.*' -o -name 'description' \\) -exec cp -f {} "$DEST/" \\;
           (cd "$DEST" && sha256sum *.apk > SHA256SUMS)
           {
             echo "Nikki upstream: https://github.com/nikkinikki-org/OpenWrt-nikki"
@@ -60,6 +58,7 @@ jobs:
             echo "Packages:"
             ls -1 "$DEST"/*.apk | xargs -n1 basename
           } > "$DEST/BUILD-INFO.txt"
+          tar -czf output/nikki-i386_pentium4.tar.gz -C "$DEST" .
 
       - name: Build and verify firmware
         env:
@@ -86,10 +85,29 @@ jobs:
             output/build-info.txt
             output/sha256sums.txt
             output/build.log
-            output/nikki/i386_pentium4/*
+            output/nikki/nikki-i386_pentium4.tar.gz
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: Publish public Nikki package release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: smartnet-nikki
+          name: Smart-Net Nikki packages (OpenWrt 25.12 / i386_pentium4)
+          target_commitish: ${{ github.sha }}
+          body: |
+            Nikki packages built from the official nikkinikki-org/OpenWrt-nikki
+            source using the official OpenWrt SDK for OpenWrt 25.12,
+            architecture i386_pentium4.
+
+            This release asset is consumed by scripts/modules/09-mihomo-luci.sh.
+          prerelease: true
+          make_latest: false
+          files: output/nikki/nikki-i386_pentium4.tar.gz
+          overwrite_files: true
+          fail_on_unmatched_files: true
 
       - name: Upload build log after failure
         if: failure()
