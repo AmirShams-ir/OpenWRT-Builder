@@ -18,8 +18,8 @@ MIHOMO_RELEASE="v1.19.34"
 MIHOMO_I386_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_RELEASE}/mihomo-linux-386-${MIHOMO_RELEASE}.gz"
 MIHOMO_I386_SHA256="035c37e926a396bffacf4109caab451df891b8c32978238f3757e2b788715287"
 
-log() { printf '[06-proxy-stack] %s\\n' "$*"; }
-report() { printf '%s\\n' "$*" >> "$REPORT"; }
+log() { printf '[06-proxy-stack] %s\n' "$*"; }
+report() { printf '%s\n' "$*" >> "$REPORT"; }
 package_installed() { apk info -e "$1" >/dev/null 2>&1; }
 package_available() { apk search -x "$1" 2>/dev/null | grep -q .; }
 
@@ -205,7 +205,7 @@ install_passwall2_apk() {
     key_url="https://sourceforge.net/projects/openwrt-passwall-build/files/apk.pub/download"
     key_sha256="52802b143489214e13b78f96599a147a638205cc22d9dd6d71229504e38ddc00"
     key_path="/etc/apk/keys/passwall.pub"
-    key_tmp="/tmp/passwall-apk-key-$"
+    key_tmp="/tmp/passwall-apk-key.tmp"
     feeds="/etc/apk/repositories.d/customfeeds.list"
     base_url="https://sourceforge.net/projects/openwrt-passwall-build/files/releases/packages-$release/$arch"
 
@@ -247,7 +247,7 @@ install_passwall2_apk() {
     for feed in passwall_packages passwall_luci passwall2; do
         feed_line="$base_url/$feed/packages.adb"
         if ! grep -Fqx "$feed_line" "$feeds"; then
-            printf '%s\\n' "$feed_line" >> "$feeds"
+            printf '%s\n' "$feed_line" >> "$feeds"
         fi
     done
 
