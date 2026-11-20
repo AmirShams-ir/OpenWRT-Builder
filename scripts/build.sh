@@ -75,14 +75,13 @@ unset_config_value CONFIG_TARGET_ROOTFS_SQUASHFS
 set_config_value CONFIG_TARGET_KERNEL_PARTSIZE "$KERNEL_PARTSIZE_MIB"
 set_config_value CONFIG_TARGET_ROOTFS_PARTSIZE "$ROOTFS_PARTSIZE_MIB"
 
-# Nikki package integration is intentionally fail-closed until APK repository
-# signature verification and ImageBuilder local-repository wiring are validated.
-# Avoid passing bare APK files or unverified packages into a production image.
-if [[ "${SMARTNET_NIKKI:-1}" = "1" ]]; then
-  bash "$ROOT_DIR/scripts/integrate-nikki.sh" "$BUILDER_DIR" "$WORK_DIR"
-  die "Nikki APKs were downloaded, but local APK repository signature verification and ImageBuilder integration are not yet validated. Set SMARTNET_NIKKI=0 for a baseline image."
-fi
+# Nikki feed preflight. Actual package injection is gated until the local APK
+# repository is verified by the matching OpenWrt 25.12 apk-tools environment.
 NIKKI_PACKAGES=""
+if [[ "${SMARTNET_NIKKI:-1}" = "1" ]]; then
+  bash "$ROOT_DIR/scripts/build-nikki-packages.sh" "$WORK_DIR" "$BUILDER_DIR"
+  die "Nikki APK signing and local ImageBuilder repository wiring need validation with matching OpenWrt 25.12 apk-tools. Baseline build: set SMARTNET_NIKKI=0."
+fi
 
 PACKAGES_FILE="$ROOT_DIR/config/packages.txt"
 [[ -f "$PACKAGES_FILE" ]] || die "Missing config/packages.txt"
