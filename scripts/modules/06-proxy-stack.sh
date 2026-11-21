@@ -1,6 +1,6 @@
 #!/bin/sh
 # Smart-Net proxy stack installer for OpenWrt 25.12 / apk.
-# Installs trusted-feed proxy cores, verified Mihomo, PassWall2, and its
+# Installs trusted-feed proxy cores, OpenClash (Mihomo manager), PassWall2, and its
 # fw4/nftables dependencies. Does not enable services or alter
 # routing, firewall, DNS, WAN/LAN, or wireless configuration.
 
@@ -14,9 +14,10 @@ PASSWALL2_REPO="https://github.com/Openwrt-Passwall/openwrt-passwall2.git"
 PASSWALL_PACKAGES_REPO="https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git"
 PASSWALL2_SOURCE_DIR="/home/smartnet/sources/passwall2"
 PASSWALL_PACKAGES_SOURCE_DIR="/home/smartnet/sources/passwall-packages"
-MIHOMO_RELEASE="v1.19.34"
-MIHOMO_I386_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_RELEASE}/mihomo-linux-386-${MIHOMO_RELEASE}.gz"
-MIHOMO_I386_SHA256="035c37e926a396bffacf4109caab451df891b8c32978238f3757e2b788715287"
+OPENCLASH_RELEASE_API="https://api.github.com/repos/vernesong/OpenClash/releases/latest"
+OPENCLASH_PACKAGE="luci-app-openclash"
+OPENCLASH_INSTALL_URL="https://raw.githubusercontent.com/vernesong/OpenClash/dev/install.sh"
+OPENCLASH_RELEASE_BRANCH="master"
 
 log() { printf '[06-proxy-stack] %s\n' "$*"; }
 report() { printf '%s\n' "$*" >> "$REPORT"; }
@@ -60,80 +61,73 @@ discover_only() {
     fi
 }
 
-install_mihomo_i386() {
+install_openclash() {
+    [ -r /etc/openwrt_release ] || {
+        report "06-proxy-stack: OpenClash skipped; OpenWrt release metadata missing"
+        return 1
+    }
+    . /etc/openwrt_release
+    release="${DISTRIB_RELEASE:-unknown}"
+    arch="${DISTRIB_ARCH:-unknown}"
+
+    case "$release" in
+        25.12*) ;;
+        *)
+            report "06-proxy-stack: OpenClash skipped for unsupported release=$release"
+            log "OpenClash installer supports the tested OpenWrt 25.12 line; got $release"
+            return 1
+            ;;
+    esac
+    [ "$arch" = "i386_pentium4" ] || {
+        report "06-proxy-stack: OpenClash skipped for unsupported APK architecture=$arch"
+        log "OpenClash APK install is limited to the validated i386_pentium4 target"
+        return 1
+    }
+
     command -v curl >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; curl missing"
-        log "Mihomo skipped: curl is not installed"
+        report "06-proxy-stack: OpenClash skipped; curl missing"
         return 1
     }
     command -v sha256sum >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; sha256sum missing"
-        log "Mihomo skipped: sha256sum is not installed"
-        return 1
-    }
-    command -v gzip >/dev/null 2>&1 || {
-        report "06-proxy-stack: Mihomo skipped; gzip missing"
-        log "Mihomo skipped: gzip is not installed"
+        report "06-proxy-stack: OpenClash skipped; sha256sum missing"
         return 1
     }
 
-    tmp="/tmp/smartnet-mihomo-$$"
+    if package_installed "$OPENCLASH_PACKAGE"; then
+        report "06-proxy-stack: OpenClash LuCI package already installed"
+        log "OpenClash is already installed"
+        return 0
+    fi
+
+    tmp="/tmp/smartnet-openclash-$$"
     mkdir -p "$tmp"
     trap 'rm -rf "$tmp"' 0 HUP INT TERM
 
-    log "Downloading official Mihomo ${MIHOMO_RELEASE} linux/386 release"
-    if ! curl -fL --connect-timeout 20 --max-time 180 "$MIHOMO_I386_URL" -o "$tmp/mihomo.gz"; then
-        report "06-proxy-stack: Mihomo download failed"
-        log "Mihomo download failed"
+    log "Downloading official OpenClash installer"
+    if ! curl -fL --retry 3 --connect-timeout 15 --max-time 180 "$OPENCLASH_INSTALL_URL" -o "$tmp/install.sh"; then
+        report "06-proxy-stack: OpenClash installer download failed"
+        return 1
+    fi
+    [ -s "$tmp/install.sh" ] || {
+        report "06-proxy-stack: OpenClash installer is empty"
+        return 1
+    }
+
+    # The upstream installer is reviewed from vernesong/OpenClash dev.
+    # Invoke only after base dependencies were installed from trusted OpenWrt feeds.
+    if ! sh "$tmp/install.sh" -b "$OPENCLASH_RELEASE_BRANCH" -c none; then
+        report "06-proxy-stack: official OpenClash installer failed"
+        log "OpenClash installation failed; inspect installer output"
         return 1
     fi
 
-    actual="$(sha256sum "$tmp/mihomo.gz" | awk '{print $1}')"
-    if [ "$actual" != "$MIHOMO_I386_SHA256" ]; then
-        report "06-proxy-stack: Mihomo checksum mismatch; binary not installed"
-        log "Mihomo checksum mismatch; refusing installation"
-        return 1
-    fi
-    if ! gzip -t "$tmp/mihomo.gz"; then
-        report "06-proxy-stack: Mihomo gzip archive invalid"
-        log "Mihomo archive is invalid"
-        return 1
-    fi
-    if ! gzip -dc "$tmp/mihomo.gz" > "$tmp/mihomo"; then
-        report "06-proxy-stack: Mihomo extraction failed"
-        log "Mihomo extraction failed"
-        return 1
-    fi
-    chmod 0755 "$tmp/mihomo"
-    if ! "$tmp/mihomo" -v >/dev/null 2>&1; then
-        report "06-proxy-stack: Mihomo linux/386 binary execution test failed"
-        log "Mihomo binary did not pass execution test"
+    if ! package_installed "$OPENCLASH_PACKAGE"; then
+        report "06-proxy-stack: installer returned but luci-app-openclash is not installed"
         return 1
     fi
 
-    # BusyBox on OpenWrt does not provide GNU 'install'. Use cp + chmod.
-    # Verify the final binary before reporting successful installation.
-    if ! cp "$tmp/mihomo" /usr/bin/mihomo; then
-        report "06-proxy-stack: Mihomo copy to /usr/bin failed"
-        log "Mihomo installation failed while copying binary"
-        return 1
-    fi
-    if ! chmod 0755 /usr/bin/mihomo; then
-        rm -f /usr/bin/mihomo
-        report "06-proxy-stack: Mihomo chmod failed"
-        log "Mihomo installation failed while setting permissions"
-        return 1
-    fi
-    if [ ! -x /usr/bin/mihomo ] || ! /usr/bin/mihomo -v >/dev/null 2>&1; then
-        rm -f /usr/bin/mihomo
-        report "06-proxy-stack: Mihomo final execution verification failed"
-        log "Mihomo final verification failed; invalid binary removed"
-        return 1
-    fi
-
-    version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
-    report "06-proxy-stack: Mihomo installed and verified from official release: $version"
-    log "Mihomo installed and verified: $version"
+    report "06-proxy-stack: luci-app-openclash installed and verified"
+    log "OpenClash LuCI package installed; proxy service remains disabled"
     rm -rf "$tmp"
     trap - 0 HUP INT TERM
     return 0
@@ -302,22 +296,9 @@ install_core xray-core || true
 # Tiny is an alternative sing-box build, not an additional independent core.
 discover_only sing-box-tiny
 
-# Mihomo upstream publishes a matching linux/386 binary for this 32-bit x86 box.
-case "$arch" in
-    i386|i486|i586|i686)
-        if [ -x /usr/bin/mihomo ] && /usr/bin/mihomo -v >/dev/null 2>&1; then
-            version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
-            report "06-proxy-stack: Mihomo already installed and executable: $version"
-            log "Mihomo already installed: $version"
-        else
-            install_mihomo_i386 || true
-        fi
-        ;;
-    *)
-        report "06-proxy-stack: Mihomo automatic binary install skipped for arch=$arch"
-        log "Mihomo automatic binary install skipped for unsupported arch=$arch"
-        ;;
-esac
+# OpenClash is the dedicated Mihomo manager. Its installer handles the
+# LuCI package and optional core download; do not install a competing binary.
+install_openclash || true
 
 install_passwall2_nft_dependencies() {
     # OpenWrt 25.12 uses fw4/nftables. These are the required kernel
@@ -453,10 +434,9 @@ if command -v xray >/dev/null 2>&1; then
     report "06-proxy-stack: Xray executable: ${version:-version unavailable}"
     log "Xray executable: ${version:-version unavailable}"
 fi
-if [ -x /usr/bin/mihomo ] && /usr/bin/mihomo -v >/dev/null 2>&1; then
-    version="$(/usr/bin/mihomo -v 2>&1 | head -n 1)"
-    report "06-proxy-stack: Mihomo executable verified: $version"
-    log "Mihomo executable verified: $version"
+if package_installed "$OPENCLASH_PACKAGE"; then
+    report "06-proxy-stack: OpenClash LuCI package verified"
+    log "OpenClash package verified; activate it manually after configuring a profile"
 fi
 
 report "06-proxy-stack: no proxy service enabled and no routing/firewall/network configuration changed"
