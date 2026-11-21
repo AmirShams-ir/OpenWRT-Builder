@@ -306,14 +306,13 @@ arch="$(uname -m 2>/dev/null || echo unknown)"
 apk_arch="$(apk --print-arch 2>/dev/null || echo unknown)"
 report "06-proxy-stack: target=$target arch=$arch apk_arch=$apk_arch"
 
-# Install cores only from the router's currently configured trusted feeds.
+# Install the standard cores selected for this proxy stack.
 install_core sing-box || true
 install_core xray-core || true
 # Tiny is an alternative sing-box build, not an additional independent core.
 discover_only sing-box-tiny
 
-# OpenClash is the dedicated Mihomo manager. Its installer handles the
-# LuCI package and optional core download; do not install a competing binary.
+# OpenClash owns Mihomo as its dedicated LuCI manager.
 install_openclash || true
 
 install_passwall2_nft_dependencies() {
