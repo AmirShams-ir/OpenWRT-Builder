@@ -68,29 +68,13 @@ install_openclash() {
     . /etc/openwrt_release
     release="${DISTRIB_RELEASE:-unknown}"
     arch="${DISTRIB_ARCH:-unknown}"
-
-    case "$release" in
-        25.12*) ;;
-        *)
-            report "06-proxy-stack: OpenClash skipped for unsupported release=$release"
-            log "OpenClash installer supports the tested OpenWrt 25.12 line; got $release"
-            return 1
-            ;;
-    esac
+    case "$release" in 25.12*) ;; *) report "06-proxy-stack: OpenClash skipped for unsupported release=$release"; return 1 ;; esac
     [ "$arch" = "i386_pentium4" ] || {
         report "06-proxy-stack: OpenClash skipped for unsupported APK architecture=$arch"
-        log "OpenClash APK install is limited to the validated i386_pentium4 target"
         return 1
     }
-
-    command -v curl >/dev/null 2>&1 || {
-        report "06-proxy-stack: OpenClash skipped; curl missing"
-        return 1
-    }
-    command -v sha256sum >/dev/null 2>&1 || {
-        report "06-proxy-stack: OpenClash skipped; sha256sum missing"
-        return 1
-    }
+    command -v curl >/dev/null 2>&1 || return 1
+    command -v sha256sum >/dev/null 2>&1 || return 1
 
     if package_installed "$OPENCLASH_PACKAGE"; then
         report "06-proxy-stack: OpenClash LuCI package already installed"
@@ -98,35 +82,68 @@ install_openclash() {
         return 0
     fi
 
+    # Install the same official runtime prerequisites documented upstream,
+    # but do not run the upstream bootstrap script: it may replace dnsmasq
+    # and temporarily rewrite /etc/resolv.conf. Smart-Net owns network setup.
+    deps="bash curl ca-bundle dnsmasq-full ip-full ruby ruby-yaml ruby-psych ruby-pstore unzip kmod-tun"
+    for pkg in $deps; do
+        if ! package_installed "$pkg"; then
+            if ! package_available "$pkg"; then
+                report "06-proxy-stack: required OpenClash dependency unavailable: $pkg"
+                log "Missing OpenClash dependency in trusted feeds: $pkg"
+                return 1
+            fi
+            if ! apk add "$pkg"; then
+                report "06-proxy-stack: failed to install OpenClash dependency: $pkg"
+                return 1
+            fi
+        fi
+    done
+
+    # Our OpenWrt 25.12 build uses Firewall4/nftables, not legacy iptables.
+    for pkg in kmod-nft-tproxy luci-compat luci luci-base; do
+        if ! package_installed "$pkg"; then
+            if ! package_available "$pkg" || ! apk add "$pkg"; then
+                report "06-proxy-stack: failed to install OpenClash dependency: $pkg"
+                return 1
+            fi
+        fi
+    done
+
     tmp="/tmp/smartnet-openclash-$$"
     mkdir -p "$tmp"
     trap 'rm -rf "$tmp"' 0 HUP INT TERM
+    release_json="$tmp/release.json"
 
-    log "Downloading official OpenClash installer"
-    if ! curl -fL --retry 3 --connect-timeout 15 --max-time 180 "$OPENCLASH_INSTALL_URL" -o "$tmp/install.sh"; then
-        report "06-proxy-stack: OpenClash installer download failed"
+    log "Resolving official OpenClash APK release"
+    if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 \
+        "https://api.github.com/repos/vernesong/OpenClash/releases/latest" -o "$release_json"; then
+        report "06-proxy-stack: OpenClash release API request failed"
         return 1
     fi
-    [ -s "$tmp/install.sh" ] || {
-        report "06-proxy-stack: OpenClash installer is empty"
+
+    # Extract only the APK asset URL, never the IPK package.
+    download_url="$(jsonfilter -i "$release_json" -e '@.assets[*].browser_download_url' 2>/dev/null | grep '\\.apk$' | head -n1 || true)"
+    [ -n "$download_url" ] || {
+        report "06-proxy-stack: official OpenClash APK asset not found in latest release"
+        return 1
+    }
+    if ! curl -fL --retry 3 --connect-timeout 15 --max-time 300 "$download_url" -o "$tmp/openclash.apk"; then
+        report "06-proxy-stack: OpenClash APK download failed"
+        return 1
+    fi
+
+    apk add --force-overwrite --clean-protected --allow-untrusted "$tmp/openclash.apk" || {
+        report "06-proxy-stack: OpenClash APK installation failed"
+        return 1
+    }
+    package_installed "$OPENCLASH_PACKAGE" || {
+        report "06-proxy-stack: APK install returned but luci-app-openclash is not installed"
         return 1
     }
 
-    # The upstream installer is reviewed from vernesong/OpenClash dev.
-    # Invoke only after base dependencies were installed from trusted OpenWrt feeds.
-    if ! sh "$tmp/install.sh" -b "$OPENCLASH_RELEASE_BRANCH" -c none; then
-        report "06-proxy-stack: official OpenClash installer failed"
-        log "OpenClash installation failed; inspect installer output"
-        return 1
-    fi
-
-    if ! package_installed "$OPENCLASH_PACKAGE"; then
-        report "06-proxy-stack: installer returned but luci-app-openclash is not installed"
-        return 1
-    fi
-
-    report "06-proxy-stack: luci-app-openclash installed and verified"
-    log "OpenClash LuCI package installed; proxy service remains disabled"
+    report "06-proxy-stack: official OpenClash APK installed and verified"
+    log "OpenClash installed; its proxy service remains disabled"
     rm -rf "$tmp"
     trap - 0 HUP INT TERM
     return 0
