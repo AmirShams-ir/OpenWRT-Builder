@@ -123,7 +123,7 @@ install_openclash() {
     fi
 
     # Extract only the APK asset URL, never the IPK package.
-    download_url="$(jsonfilter -i "$release_json" -e '@.assets[*].browser_download_url' 2>/dev/null | grep '\.apk | head -n1 || true)"
+    download_url="$(jsonfilter -i "$release_json" -e '@.assets[*].browser_download_url' 2>/dev/null | grep '\\.apk$' | head -n1 || true)"
     [ -n "$download_url" ] || {
         report "06-proxy-stack: official OpenClash APK asset not found in latest release"
         return 1
