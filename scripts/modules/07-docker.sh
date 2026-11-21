@@ -49,8 +49,9 @@ fi
 
 # Docker data must live on the dedicated persistent ext4 data partition,
 # not on the limited OpenWrt root filesystem.
-mountpoint -q /home/smartnet || fail "/home/smartnet is not mounted; refusing to place Docker data on rootfs"
-FS_TYPE="$(awk '$2=="/home/smartnet" {print $3; exit}' /proc/mounts)"
+MOUNTED_FS="$(awk '$2=="/home/smartnet" {print $3; exit}' /proc/mounts)"
+[ -n "$MOUNTED_FS" ] || fail "/home/smartnet is not mounted; refusing to place Docker data on rootfs"
+FS_TYPE="$MOUNTED_FS"
 [ "$FS_TYPE" = "ext4" ] || fail "/home/smartnet filesystem is '$FS_TYPE', expected ext4"
 
 FREE_KB="$(df -Pk /home/smartnet | awk 'NR==2 {print $4}')"
