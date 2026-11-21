@@ -35,11 +35,8 @@ MEM_MB=$((MEM_KB / 1024))
 
 log "Target architecture=$PKG_ARCH; CPU architecture=$CPU_ARCH; RAM=${MEM_MB}MiB"
 
-# Atom N270 reports i686 while OpenWrt packages use i386_pentium4.
-case "$PKG_ARCH:$CPU_ARCH" in
-    i386_pentium4:i686|i386_pentium4:x86_64|x86_64:x86_64|\
-    aarch64*:aarch64|arm_*:arm*|*) : ;;
-esac
+# OpenWrt's DISTRIB_ARCH is authoritative: Atom N270 reports i686 via uname,
+# while the matching package ABI is i386_pentium4. APK availability is checked below.
 
 if [ "$MEM_MB" -lt "$MIN_RAM_MB" ]; then
     report "07-docker: skipped; RAM ${MEM_MB}MiB is below configured minimum ${MIN_RAM_MB}MiB"
