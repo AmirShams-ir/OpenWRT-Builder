@@ -119,7 +119,7 @@ NGINX
 nginx -t || fail "nginx configuration test failed; nginx not started"
 [ -x /etc/init.d/nginx ] || fail "nginx procd init script missing"
  /etc/init.d/nginx enable || fail "could not enable nginx"
-if /etc/init.d/nginx running >/dev/null 2>&1; then
+if pidof nginx >/dev/null 2>&1; then
     /etc/init.d/nginx reload || fail "nginx reload failed"
 else
     /etc/init.d/nginx start || fail "nginx start failed"
