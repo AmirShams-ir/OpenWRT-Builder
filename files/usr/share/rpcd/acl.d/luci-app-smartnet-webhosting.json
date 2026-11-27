@@ -1,6 +1,6 @@
 {
   "luci-app-smartnet-webhosting": {
-    "description": "Smart-Net WebApp Hosting status page",
+    "description": "Smart-Net WebApp Hosting read-only status page",
     "read": {
       "ubus": {
         "system": [ "board", "info" ]
