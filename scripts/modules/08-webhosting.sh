@@ -150,8 +150,8 @@ start_service() {
 INIT
 chmod 0755 "$SERVICE"
 
-# Install managed LuCI assets from the repository when running on an
-# already-installed router. ImageBuilder also ships these through files/.
+# Install managed LuCI assets from the repository on an existing router.
+# Do not overwrite with here-doc duplicates; repository files are canonical.
 REPO_FILES="${SMARTNET_ROOT_DIR:-/root/OpenWRT-Builder}/files"
 if [ -d "$REPO_FILES" ]; then
     for rel in \
@@ -164,6 +164,12 @@ if [ -d "$REPO_FILES" ]; then
         install -m 0644 "$REPO_FILES/$rel" "/$rel"
     done
 fi
+
+# Ensure all expected assets exist, including for an ImageBuilder overlay.
+[ -f "$LUCI_MENU" ] || fail "LuCI menu file missing"
+[ -f "$LUCI_VIEW" ] || fail "LuCI view missing"
+[ -f "$LUCI_ACL" ] || fail "LuCI ACL missing"
+[ -x "$SERVICE" ] || chmod 0755 "$SERVICE"
 
 # LuCI menu, view and ACL. No shell command RPC exposure; view is read-only
 # status/links and never accepts arbitrary commands.
