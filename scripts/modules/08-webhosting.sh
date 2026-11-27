@@ -49,6 +49,10 @@ apk add nginx || fail "could not install nginx from configured native repositori
 have nginx || fail "nginx executable missing after package installation"
 
 mkdir -p "$APPS" "$BASE/logs" "$BASE/tmp" "$CONF_DIR" /etc/nginx/smartnet-apps
+# Ensure the managed include glob has at least one harmless config file.
+if [ ! -f /etc/nginx/smartnet-apps/00-empty.conf ]; then
+    printf '%s\\n' '# Smart-Net app proxy routes are added here by the hosting CLI.' > /etc/nginx/smartnet-apps/00-empty.conf
+fi
 chmod 0750 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
 [ "$(df -P "$BASE" | awk 'NR==2 {print $NF}')" = "/home/smartnet" ] || fail "hosting data is not on persistent /home/smartnet"
 
