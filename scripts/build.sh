@@ -108,6 +108,10 @@ else
   log "SMARTNET_WIFI_KEY is unset; Wi-Fi will be disabled in this image."
 fi
 
+# Merge all tracked runtime files (including the LuCI WebApp Hosting app)
+# into the ImageBuilder overlay. Packages/services are installed on first boot.
+cp -a "$ROOT_DIR/files/." "$BUILD_FILES_DIR/"
+
 FILES_ARGS=("FILES=$BUILD_FILES_DIR")
 log "Using filesystem overlay: $BUILD_FILES_DIR"
 
