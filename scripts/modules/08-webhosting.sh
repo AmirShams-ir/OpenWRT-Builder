@@ -124,7 +124,7 @@ NGINX
 nginx -t || fail "nginx configuration test failed; service not started"
 if [ -x /etc/init.d/nginx ]; then
     /etc/init.d/nginx enable || fail "could not enable nginx"
-    /etc/init.d/nginx start || /etc/init.d/nginx reload || fail "could not start/reload nginx"
+    /etc/init.d/nginx start || fail "could not start nginx"
 else
     fail "nginx init script is missing"
 fi
@@ -149,6 +149,21 @@ start_service() {
 }
 INIT
 chmod 0755 "$SERVICE"
+
+# Install managed LuCI assets from the repository when running on an
+# already-installed router. ImageBuilder also ships these through files/.
+REPO_FILES="${SMARTNET_ROOT_DIR:-/root/OpenWRT-Builder}/files"
+if [ -d "$REPO_FILES" ]; then
+    for rel in \
+        usr/share/luci/menu.d/luci-app-smartnet-webhosting.json \
+        usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json \
+        www/luci-static/resources/view/smartnet/webhosting.js \
+        etc/init.d/smartnet-webhosting; do
+        [ -f "$REPO_FILES/$rel" ] || continue
+        mkdir -p "/$(dirname "$rel")"
+        install -m 0644 "$REPO_FILES/$rel" "/$rel"
+    done
+fi
 
 # LuCI menu, view and ACL. No shell command RPC exposure; view is read-only
 # status/links and never accepts arbitrary commands.
@@ -240,6 +255,7 @@ VIEW
 
 # LuCI view package is served directly from /www. Reload rpcd/uhttpd only if init exists.
 [ ! -x /etc/init.d/rpcd ] || /etc/init.d/rpcd reload >/dev/null 2>&1 || true
+[ ! -x /etc/init.d/uhttpd ] || /etc/init.d/uhttpd reload >/dev/null 2>&1 || true
 
 # Runtime probe; never auto-install from an unofficial feed or foreign ABI.
 if have node; then
