@@ -1,12 +1,40 @@
 #!/bin/sh
-# Smart-Net WebApp Hosting CLI. Data-preserving operations only.
+# Smart-Net WebApp Hosting CLI. Destructive operations never remove app data.
 set -eu
 BASE="/home/smartnet/webhosting/apps"
+NGINX_APPS="/etc/nginx/smartnet-apps"
 usage() {
-    echo "Usage: smartnet-webhosting {list|create <slug>|info <slug>}"
-    echo "Slug: lowercase letters/digits, starts alphanumeric, then a-z 0-9 _ -"
+    cat <<'USAGE'
+Usage:
+  smartnet-webhosting list
+  smartnet-webhosting create <slug>
+  smartnet-webhosting info <slug>
+  smartnet-webhosting container-run <slug> <local-image> <container-port> <host-port>
+  smartnet-webhosting container-status <slug>
+  smartnet-webhosting container-stop <slug>
+  smartnet-webhosting container-remove <slug>
+
+Container image must already be present locally and support Linux 386/i386.
+Container convention: persistent app data is mounted at /app/data and /app/db.
+USAGE
 }
 valid() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9_-]{0,39}$'; }
+valid_port() {
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+docker_ready() {
+    command -v docker >/dev/null 2>&1 || { echo "Docker CLI unavailable." >&2; exit 1; }
+    docker info >/dev/null 2>&1 || { echo "Docker daemon is not ready." >&2; exit 1; }
+}
+app_dir() {
+    valid "${1:-}" || { usage; exit 2; }
+    [ -d "$BASE/$1" ] || { echo "No such app: $1" >&2; exit 1; }
+}
+reload_nginx() {
+    nginx -t || { echo "Nginx config test failed; not reloading." >&2; return 1; }
+    /etc/init.d/nginx reload
+}
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
 [ -d "$BASE" ] || { echo "Hosting is not initialized: $BASE" >&2; exit 1; }
 cmd="${1:-}"
@@ -22,30 +50,81 @@ case "$cmd" in
         valid "$slug" || { usage; exit 2; }
         dir="$BASE/$slug"
         [ ! -e "$dir" ] || { echo "App already exists: $slug" >&2; exit 1; }
-        mkdir -p "$dir"/public "$dir"/data "$dir"/db "$dir"/logs "$dir"/config
+        mkdir -p "$dir/public" "$dir/data" "$dir/db" "$dir/logs" "$dir/config"
         cat > "$dir/public/index.html" <<HTML
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>$slug</title><h1>$slug</h1><p>Deploy your production frontend build into this public directory.</p></html>
 HTML
         printf '{"name":"%s","type":"static","enabled":true}\n' "$slug" > "$dir/config/app.json"
-        chmod 0750 "$dir" "$dir"/public "$dir"/data "$dir"/db "$dir"/logs "$dir"/config
+        chmod 0750 "$dir" "$dir/public" "$dir/data" "$dir/db" "$dir/logs" "$dir/config"
         echo "Created $slug."
-        echo "Publish static build files to: $dir/public"
-        echo "Persistent writable data: $dir/data"
-        echo "App-owned SQLite database location: $dir/db/app.sqlite"
+        echo "Copy the contents of your production build (usually dist/) to: $dir/public"
+        echo "Persistent app data: $dir/data ; SQLite path: $dir/db/app.sqlite"
         echo "URL: http://<Smart-Net-LAN-IP>:8080/apps/$slug/"
         ;;
     info)
-        slug="${2:-}"
-        valid "$slug" || { usage; exit 2; }
-        dir="$BASE/$slug"
-        [ -d "$dir" ] || { echo "No such app: $slug" >&2; exit 1; }
+        slug="${2:-}"; app_dir "$slug"; dir="$BASE/$slug"
         echo "App: $slug"
         echo "Public: $dir/public"
         echo "Data: $dir/data"
         echo "SQLite path (created by app runtime): $dir/db/app.sqlite"
         echo "Logs: $dir/logs"
         echo "Config: $dir/config"
+        ;;
+    container-run)
+        slug="${2:-}"; image="${3:-}"; cport="${4:-}"; hport="${5:-}"
+        app_dir "$slug"
+        printf '%s' "$image" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/:@-]*$' || { usage; exit 2; }
+        valid_port "$cport" && valid_port "$hport" || { echo "Ports must be integers 1-65535." >&2; exit 2; }
+        docker_ready
+        arch="$(docker image inspect --format '{{.Architecture}}' "$image" 2>/dev/null || true)"
+        case "$arch" in 386|i386) ;; *) echo "Image architecture '$arch' is not compatible with this i686 router (expected 386/i386)." >&2; exit 1 ;; esac
+        name="smartnet-app-$slug"
+        docker container inspect "$name" >/dev/null 2>&1 && { echo "Container exists; stop/remove it first (app data is preserved)." >&2; exit 1; }
+        mkdir -p "$NGINX_APPS"
+        conf="$NGINX_APPS/$slug.conf"
+        [ ! -e "$conf" ] || { echo "Proxy config already exists: $conf" >&2; exit 1; }
+        cat > "$conf" <<NGINX
+location ^~ /apps/$slug/api/ {
+    proxy_pass http://127.0.0.1:$hport/;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+}
+NGINX
+        if ! nginx -t; then rm -f "$conf"; echo "Proxy config invalid; container not started." >&2; exit 1; fi
+        if ! docker run -d --name "$name" --restart unless-stopped \
+            --publish "127.0.0.1:$hport:$cport" \
+            --mount "type=bind,src=$BASE/$slug/data,dst=/app/data" \
+            --mount "type=bind,src=$BASE/$slug/db,dst=/app/db" "$image"; then
+            rm -f "$conf"; exit 1
+        fi
+        if ! /etc/init.d/nginx reload; then
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            rm -f "$conf"; exit 1
+        fi
+        printf '{"name":"%s","type":"container","image":"%s","container_port":%s,"host_port":%s}\n' "$slug" "$image" "$cport" "$hport" > "$BASE/$slug/config/app.json"
+        echo "Container started: $name"
+        echo "API route: http://<Smart-Net-LAN-IP>:8080/apps/$slug/api/"
+        echo "Container port $cport is bound only to 127.0.0.1:$hport."
+        ;;
+    container-status)
+        slug="${2:-}"; app_dir "$slug"; docker_ready
+        docker container inspect "smartnet-app-$slug" >/dev/null 2>&1 || { echo "Container not created."; exit 1; }
+        docker ps -a --filter "name=^smartnet-app-$slug$"
+        ;;
+    container-stop)
+        slug="${2:-}"; app_dir "$slug"; docker_ready
+        docker stop "smartnet-app-$slug"
+        ;;
+    container-remove)
+        slug="${2:-}"; app_dir "$slug"; docker_ready
+        docker rm -f "smartnet-app-$slug"
+        rm -f "$NGINX_APPS/$slug.conf"
+        reload_nginx
+        echo "Container and proxy removed; app data/db were preserved."
         ;;
     *) usage; exit 2 ;;
 esac
