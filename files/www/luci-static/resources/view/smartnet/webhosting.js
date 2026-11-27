@@ -49,11 +49,11 @@ return view.extend({
                 E('h3', _('Create and publish an app')),
                 E('p', {}, _('Run as root: smartnet-webhosting create <slug>')),
                 E('p', {}, _('Build Vue/Vite or React on a development PC/CI, then copy the production build into the app public/ directory.')),
-                E('p', {}, _('List apps: smartnet-webhosting list'))
+                E('p', {}, _('List apps: smartnet-webhosting list')),\n                E('p', {}, _('If Docker is installed, container-run supports only locally available Linux 386/i386 images and checks the image architecture.'))
             ]),
             E('div', { 'class': 'cbi-section' }, [
                 E('h3', _('Backend and database')),
-                E('p', {}, _('Dynamic backend/container runtimes must be verified for this device architecture before deployment.')),
+                E('p', {}, _('Dynamic backend/container runtimes must be verified for this device architecture before deployment. The CLI can manage per-app containers when Docker is available, but only compatible Linux 386/i386 images are accepted.')),
                 E('p', {}, _('SQLite is app-local: an app can create /home/smartnet/webhosting/apps/<slug>/db/app.sqlite using its own SQLite library.')),
                 E('p', {}, _('Do not expose data/, db/, logs/ or config/ through the web server. Keep secrets out of frontend build files.')),
                 E('p', {}, _('AmirNote currently needs an API and storage adapter for its Vercel Functions/Blob dependencies; static files alone do not provide those services.'))
