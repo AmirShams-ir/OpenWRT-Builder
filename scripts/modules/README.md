@@ -12,39 +12,68 @@
 | 05-wireguard | Optional WireGuard package compatibility |
 | 06-proxy-stack | Optional packages from configured trusted feeds only |
 | 07-docker | Conservative RAM/architecture gate |
-| 08-webhosting | Persistent Nginx site root, isolated :8080 listener, procd app runner, and read-only LuCI status page |
+| 08-webhosting | Generic persistent web-app hosting, Nginx :8080, per-app storage layout, CLI and LuCI status page |
 
-## Web hosting module
+## Module 08 — Generic WebApp Hosting
 
-Module 08 expects Installer99 to have mounted `/home/smartnet` as ext4. It refuses to write hosting content to rootfs when that mount is absent or has less than 512 MiB free.
+Module 08 requires Installer99 to mount `/home/smartnet` as ext4 with at least 512 MiB free. It refuses to place app data on rootfs.
 
-It installs Nginx from the device's configured APK repositories and configures a dedicated virtual host on TCP/8080. LuCI/uHTTPd ports 80/443 are not changed. The managed site root is:
+### Architecture
+
+Persistent app root:
 
 ```
-/home/smartnet/webhosting/sites/amirnote
+/home/smartnet/webhosting/apps/<slug>/
+├── public/   # frontend production build (served by Nginx)
+├── data/     # app-owned persistent files
+├── db/       # app-owned SQLite file(s), e.g. app.sqlite
+├── logs/     # app-specific logs
+└── config/   # non-secret app metadata/config
 ```
 
-The module installs these LuCI assets:
+AmirNote is not special-cased: it can be created as an app after its API/storage compatibility work is completed. Static Vue/Vite and React builds can be built on a PC or CI and copied to `public/`; the router does not need Node just to serve static assets.
 
-- `files/usr/share/luci/menu.d/luci-app-smartnet-webhosting.json`
-- `files/usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json`
-- `files/www/luci-static/resources/view/smartnet/webhosting.js`
+Nginx listens on TCP/8080 so LuCI/uHTTPd ports 80/443 are preserved. App URLs are:
 
-The procd runner is installed as `/etc/init.d/smartnet-webhosting`, but remains inert until a compatible `/usr/bin/node` and `/home/smartnet/webhosting/app/server.js` exist.
+```
+http://<Smart-Net-LAN-IP>:8080/apps/<slug>/
+```
 
-### AmirNote compatibility
+Module 08 creates a minimal `/etc/nginx/nginx.conf` only when missing. If an existing config lacks the managed include, it is backed up before a safe include insertion. Only the module's own vhost is replaced. `nginx -t` must pass before the service is started/reloaded.
 
-Current AmirNote uses Vue/Vite for its frontend, Vercel Functions for `api/`, and private Vercel Blob storage via `BLOB_READ_WRITE_TOKEN`. Module 08 does not pretend that a static Vite build is a complete deployment. A compatible API runtime and storage adapter must be provisioned separately before AmirNote data operations are enabled. Never put the Blob token in a `VITE_*` variable or static frontend file.
+### App CLI
 
-Node.js is probed only; it is not downloaded from unofficial feeds or foreign architectures. This is intentional for x86/generic i386_pentium4.
+```sh
+smartnet-webhosting list
+smartnet-webhosting create my-app
+smartnet-webhosting info my-app
+```
 
-## Guarantees
+Creation is non-destructive; there is deliberately no delete command. Publish a Vite/React build by copying the contents of its build output (usually `dist/`) into the app's `public/` directory.
 
-- POSIX `/bin/sh` / BusyBox `ash`; no Bash, apt, systemd, UFW or journald.
-- Does not partition, format, resize or mount disks. Installer99 owns storage.
-- Does not rewrite network, wireless, DHCP, DNS or firewall rules.
-- Does not add third-party APK feeds or fetch unsigned proxy binaries.
-- Missing optional runtimes are reported; later modules can continue.
+### SQLite and backend containers
+
+SQLite is embedded, not a database server. Each app may create and manage its own DB at:
+
+```
+/home/smartnet/webhosting/apps/<slug>/db/app.sqlite
+```
+
+The database is created by the app's SQLite runtime, not by the static hosting module. A backend/container must be verified for the device's actual 32-bit architecture and resource limits. Do not assume a standard Node image supports i686. Use persistent mounts for app `data/` and `db/`; never place secrets in public frontend assets.
+
+Current AmirNote uses Vercel Functions and Vercel Blob. Static deployment alone will not provide its API or Blob storage; adapt the API and storage layer or retain a securely configured server-side external storage integration. Never expose `BLOB_READ_WRITE_TOKEN` in `VITE_*` variables.
+
+### LuCI
+
+The read-only LuCI page shows the generic layout, deployment commands and architecture cautions. It does not pretend to be a full Docker control panel or create containers through browser-side shell commands. Container lifecycle and dynamic reverse-proxy integration require a separate verified backend/API module.
+
+### Safety guarantees
+
+- BusyBox `ash` / POSIX shell; no Bash, apt, systemd, UFW or journald.
+- Does not partition, format, resize or mount disks.
+- Does not change WAN/LAN/Wi-Fi/DHCP/DNS/firewall rules.
+- Does not add third-party APK feeds or download foreign-ABI runtimes.
+- Preserves uHTTPd ports and starts/reloads Nginx only after `nginx -t`.
 - Report: `/root/smartnet-bootstrap-report.txt`; log: `/var/log/smartnet-bootstrap.log`.
 
 Run as root:
@@ -52,5 +81,3 @@ Run as root:
 ```sh
 sh /path/to/OpenWRT-Builder/scripts/bootstrap.sh
 ```
-
-Passwall2, AmneziaWG, proxy cores, Docker, PHP-FPM and database hosting require exact release/architecture/package/kernel-ABI verification before becoming mandatory. AmneziaWG is deliberately not guessed or installed from an unknown feed.
