@@ -9,6 +9,8 @@ Usage:
   smartnet-webhosting list
   smartnet-webhosting create <slug>
   smartnet-webhosting info <slug>
+  smartnet-webhosting db-path <slug>
+  smartnet-webhosting db-check <slug>
   smartnet-webhosting container-run <slug> <local-image> <container-port> <host-port>
   smartnet-webhosting container-status <slug>
   smartnet-webhosting container-stop <slug>
@@ -74,6 +76,19 @@ HTML
         echo "SQLite path (created by app runtime): $dir/db/app.sqlite"
         echo "Logs: $dir/logs"
         echo "Config: $dir/config"
+        ;;
+    db-path)
+        slug="${2:-}"; app_dir "$slug"
+        echo "$BASE/$slug/db/app.sqlite"
+        ;;
+    db-check)
+        slug="${2:-}"; app_dir "$slug"
+        command -v sqlite3 >/dev/null 2>&1 || { echo "SQLite CLI is not installed." >&2; exit 1; }
+        db="$BASE/$slug/db/app.sqlite"
+        [ -f "$db" ] || { echo "Database has not been created by the app yet: $db" >&2; exit 1; }
+        result="$(sqlite3 "$db" 'PRAGMA integrity_check;' 2>/dev/null)" || { echo "SQLite integrity check could not open the database." >&2; exit 1; }
+        [ "$result" = "ok" ] || { echo "SQLite integrity check failed: $result" >&2; exit 1; }
+        echo "SQLite integrity check: ok"
         ;;
     container-run)
         slug="${2:-}"; image="${3:-}"; cport="${4:-}"; hport="${5:-}"
