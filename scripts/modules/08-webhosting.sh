@@ -42,7 +42,7 @@ apk search -x nginx | grep -q '^nginx-' || fail "native nginx package unavailabl
 apk add nginx || fail "could not install nginx from configured native repositories"
 have nginx || fail "nginx executable missing after package installation"
 
-mkdir -p "$APPS" "$BASE/logs" "$BASE/tmp" "$CONF_DIR"
+mkdir -p "$APPS" "$BASE/logs" "$BASE/tmp" "$CONF_DIR" /etc/nginx/smartnet-apps
 chmod 0750 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
 [ "$(df -P "$BASE" | awk 'NR==2 {print $NF}')" = "/home/smartnet" ] || fail "hosting data is not on persistent /home/smartnet"
 
@@ -107,7 +107,8 @@ server {
 
     rewrite ^/$ /apps/default/public/index.html last;
     rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/?$ /apps/$1/public/index.html last;
-    rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/(?!public/)(.*)$ /apps/$1/public/$2 last;
+    include /etc/nginx/smartnet-apps/*.conf;
+    rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/(?!public/|api/)(.*)$ /apps/$1/public/$2 last;
 
     location ~ ^/apps/([a-z0-9][a-z0-9_-]*)/public/ {
         try_files $uri $uri/ /apps/$1/public/index.html;
