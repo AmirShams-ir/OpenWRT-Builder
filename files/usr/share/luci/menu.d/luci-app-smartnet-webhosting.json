@@ -1,0 +1,8 @@
+{
+  "admin/services/smartnet-webhosting": {
+    "title": "WebApp Hosting",
+    "order": 75,
+    "action": { "type": "view", "path": "smartnet/webhosting" },
+    "depends": { "acl": [ "luci-app-smartnet-webhosting" ] }
+  }
+}
