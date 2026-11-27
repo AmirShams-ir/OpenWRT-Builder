@@ -165,99 +165,11 @@ if [ -d "$REPO_FILES" ]; then
     done
 fi
 
-# Ensure all expected assets exist, including for an ImageBuilder overlay.
+# Verify that the canonical menu, view, ACL and procd service are installed.
 [ -f "$LUCI_MENU" ] || fail "LuCI menu file missing"
 [ -f "$LUCI_VIEW" ] || fail "LuCI view missing"
 [ -f "$LUCI_ACL" ] || fail "LuCI ACL missing"
 [ -x "$SERVICE" ] || chmod 0755 "$SERVICE"
-
-# LuCI menu, view and ACL. No shell command RPC exposure; view is read-only
-# status/links and never accepts arbitrary commands.
-mkdir -p "$(dirname "$LUCI_MENU")" "$(dirname "$LUCI_VIEW")" "$(dirname "$LUCI_ACL")"
-cat > "$LUCI_MENU" <<'MENU'
-{
-  "admin/services/smartnet-webhosting": {
-    "title": "WebApp Hosting",
-    "order": 75,
-    "action": { "type": "view", "path": "smartnet/webhosting" },
-    "depends": { "acl": [ "luci-app-smartnet-webhosting" ] }
-  }
-}
-MENU
-
-cat > "$LUCI_ACL" <<'ACL'
-{
-  "luci-app-smartnet-webhosting": {
-    "description": "Smart-Net WebApp Hosting status page",
-    "read": {
-      "ubus": {
-        "system": [ "board", "info" ]
-      }
-    }
-  }
-}
-ACL
-
-cat > "$LUCI_VIEW" <<'VIEW'
-'use strict';
-'require view';
-'require rpc';
-'require dom';
-
-var callSystemInfo = rpc.declare({
-    object: 'system',
-    method: 'info',
-    expect: { }
-});
-
-var callBoard = rpc.declare({
-    object: 'system',
-    method: 'board',
-    expect: { }
-});
-
-return view.extend({
-    load: function() {
-        return Promise.all([
-            callSystemInfo().catch(function() { return {}; }),
-            callBoard().catch(function() { return {}; })
-        ]);
-    },
-
-    render: function(data) {
-        var info = data[0] || {};
-        var board = data[1] || {};
-        var wrap = E('div', { 'class': 'cbi-map' }, [
-            E('h2', _('Smart-Net WebApp Hosting')),
-            E('p', {}, _('Hosting foundation for AmirNote and future Smart-Net web applications.')),
-            E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('System')),
-                E('p', {}, _('Model: ') + (board.model || _('Unknown'))),
-                E('p', {}, _('Architecture: ') + (board.system || _('Unknown'))),
-                E('p', {}, _('Memory total: ') + (info.memory && info.memory.total ? Math.round(info.memory.total / 1048576) + ' MiB' : _('Unknown')))
-            ]),
-            E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('Web server')),
-                E('p', {}, _('Nginx site listener: http://192.168.12.1:8080/')),
-                E('p', {}, _('LuCI remains on its existing uHTTPd ports.')),
-                E('p', {}, _('Frontend root: /home/smartnet/webhosting/sites/amirnote')),
-                E('p', {}, _('API upstream: 127.0.0.1:3000 (reserved; runtime not installed)'))
-            ]),
-            E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('AmirNote deployment')),
-                E('p', {}, _('The current AmirNote API depends on Vercel Functions and Vercel Blob. A compatible API adapter and storage configuration are required before full operation.')),
-                E('p', {}, _('Do not copy BLOB_READ_WRITE_TOKEN into frontend files.'))
-            ])
-        ]);
-
-        return Promise.resolve(wrap);
-    },
-
-    handleSave: null,
-    handleSaveApply: null,
-    handleReset: null
-});
-VIEW
 
 # LuCI view package is served directly from /www. Reload rpcd/uhttpd only if init exists.
 [ ! -x /etc/init.d/rpcd ] || /etc/init.d/rpcd reload >/dev/null 2>&1 || true
