@@ -105,6 +105,7 @@ server {
     if ($uri ~* ^/apps/[a-z0-9][a-z0-9_-]*/(data|db|logs|config)/) { return 404; }
     location ~ /\\. { deny all; }
 
+    rewrite ^/$ /apps/default/public/index.html last;
     rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/?$ /apps/$1/public/index.html last;
     rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/(?!public/)(.*)$ /apps/$1/public/$2 last;
 
@@ -117,6 +118,31 @@ server {
 }
 NGINX
 
+# Install repository-owned LuCI/service assets before validation.
+for rel in \
+    usr/share/luci/menu.d/luci-app-smartnet-webhosting.json \
+    usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json \
+    www/luci-static/resources/view/smartnet/webhosting.js \
+    etc/init.d/smartnet-webhosting \
+    usr/sbin/smartnet-webhosting; do
+    dst="/$rel"
+    if [ -f "$REPO_FILES/$rel" ]; then
+        mkdir -p "/$(dirname "$rel")"
+        case "$rel" in
+            etc/init.d/*|usr/sbin/*) install -m 0755 "$REPO_FILES/$rel" "$dst" ;;
+            *) install -m 0644 "$REPO_FILES/$rel" "$dst" ;;
+        esac
+    elif [ ! -f "$dst" ]; then
+        fail "asset unavailable in repo and installed system: files/$rel"
+    fi
+done
+
+[ -x "$CLI" ] || fail "hosting CLI missing"
+[ -f /usr/share/luci/menu.d/luci-app-smartnet-webhosting.json ] || fail "LuCI menu missing"
+[ -f /www/luci-static/resources/view/smartnet/webhosting.js ] || fail "LuCI view missing"
+[ -f /usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json ] || fail "LuCI ACL missing"
+[ -x "$SERVICE" ] || chmod 0755 "$SERVICE"
+
 nginx -t || fail "nginx configuration test failed; nginx not started"
 [ -x /etc/init.d/nginx ] || fail "nginx procd init script missing"
  /etc/init.d/nginx enable || fail "could not enable nginx"
@@ -126,23 +152,6 @@ else
     /etc/init.d/nginx start || fail "nginx start failed"
 fi
 
-# Install repository-owned LuCI/service assets before validation.
-for rel in \
-    usr/share/luci/menu.d/luci-app-smartnet-webhosting.json \
-    usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json \
-    www/luci-static/resources/view/smartnet/webhosting.js \
-    etc/init.d/smartnet-webhosting \
-    usr/sbin/smartnet-webhosting; do
-    [ -f "$REPO_FILES/$rel" ] || fail "repository asset missing: files/$rel"
-    mkdir -p "/$(dirname "$rel")"
-    install -m 0755 "$REPO_FILES/$rel" "/$rel"
-done
-
-[ -x "$CLI" ] || fail "hosting CLI missing"
-[ -f /usr/share/luci/menu.d/luci-app-smartnet-webhosting.json ] || fail "LuCI menu missing"
-[ -f /www/luci-static/resources/view/smartnet/webhosting.js ] || fail "LuCI view missing"
-[ -f /usr/share/rpcd/acl.d/luci-app-smartnet-webhosting.json ] || fail "LuCI ACL missing"
-[ -x "$SERVICE" ] || fail "procd service missing"
 [ ! -x /etc/init.d/rpcd ] || /etc/init.d/rpcd reload >/dev/null 2>&1 || true
 [ ! -x /etc/init.d/uhttpd ] || /etc/init.d/uhttpd reload >/dev/null 2>&1 || true
 
