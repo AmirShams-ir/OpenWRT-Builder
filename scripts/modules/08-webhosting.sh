@@ -48,6 +48,12 @@ apk search -x nginx | grep -q '^nginx-' || fail "native nginx package unavailabl
 apk add nginx || fail "could not install nginx from configured native repositories"
 have nginx || fail "nginx executable missing after package installation"
 
+# SQLite is the standard embedded DB option for hosted apps. sqlite3-cli
+# depends on libsqlite3-0, so APK installs the shared library automatically.
+apk search -x sqlite3-cli | grep -q '^sqlite3-cli-' || fail "sqlite3-cli package unavailable for $ARCH"
+apk add sqlite3-cli || fail "could not install SQLite CLI/library from configured native repositories"
+have sqlite3 || fail "sqlite3 executable missing after package installation"
+
 mkdir -p "$APPS" "$BASE/logs" "$BASE/tmp" "$CONF_DIR" /etc/nginx/smartnet-apps
 # Ensure the managed include glob has at least one harmless config file.
 if [ ! -f /etc/nginx/smartnet-apps/00-empty.conf ]; then
@@ -58,6 +64,13 @@ fi
 # Private app directories remain owner-only and are never published by the vhost.
 chmod 0755 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
 [ "$(df -P "$BASE" | awk 'NR==2 {print $NF}')" = "/home/smartnet" ] || fail "hosting data is not on persistent /home/smartnet"
+
+# Exercise SQLite on the persistent hosting volume; remove the temporary DB afterward.
+SQLITE_TEST="$BASE/tmp/.sqlite-smoke-$.db"
+SQLITE_RESULT="$(sqlite3 "$SQLITE_TEST" 'CREATE TABLE smoke_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO smoke_test(value) VALUES (\"smartnet\"); PRAGMA integrity_check;' 2>/dev/null)" || fail "SQLite smoke test could not create/query a database"
+[ "$SQLITE_RESULT" = "ok" ] || fail "SQLite integrity smoke test failed: $SQLITE_RESULT"
+rm -f "$SQLITE_TEST" "$SQLITE_TEST-wal" "$SQLITE_TEST-shm"
+log "SQLite smoke test passed; per-app DB path is apps/<slug>/db/app.sqlite"
 
 # Create an app-neutral landing site. AmirNote is just another app directory.
 if [ ! -d "$APPS/default" ]; then
@@ -207,6 +220,6 @@ fi
 report "08-webhosting: generic app hosting initialized at $APPS; Nginx listener tcp/8080"
 report "08-webhosting: create/list apps with: smartnet-webhosting create <slug> | list"
 report "08-webhosting: each app has public/data/db/logs/config; SQLite file is app-owned in db/"
-if have sqlite3; then report "08-webhosting: sqlite3 CLI detected"; else report "08-webhosting: sqlite3 CLI absent; app/container may use its own SQLite library"; fi
+report "08-webhosting: SQLite CLI and libsqlite3 installed; per-app DB path: $APPS/<slug>/db/app.sqlite"
 if have node; then report "08-webhosting: Node runtime detected: $(node --version 2>/dev/null || echo unknown)"; else report "08-webhosting: no native Node runtime detected; static builds can still be hosted"; fi
 log "Generic WebApp Hosting foundation installed; uHTTPd ports unchanged."
