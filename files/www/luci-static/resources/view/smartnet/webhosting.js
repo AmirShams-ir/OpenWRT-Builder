@@ -55,6 +55,8 @@ return view.extend({
                 E('h3', _('Backend and database')),
                 E('p', {}, _('Dynamic backend/container runtimes must be verified for this device architecture before deployment. The CLI can manage per-app containers when Docker is available, but only compatible Linux 386/i386 images are accepted.')),
                 E('p', {}, _('SQLite is app-local: an app can create /home/smartnet/webhosting/apps/<slug>/db/app.sqlite using its own SQLite library.')),
+                E('p', {}, _('Module 08 installs sqlite3-cli and the SQLite runtime library. SQLite has no separate daemon or listening port.')),
+                E('p', {}, _('Show an app database path: smartnet-webhosting db-path <slug> ; check an existing database: smartnet-webhosting db-check <slug>.')),
                 E('p', {}, _('Do not expose data/, db/, logs/ or config/ through the web server. Keep secrets out of frontend build files.')),
                 E('p', {}, _('AmirNote currently needs an API and storage adapter for its Vercel Functions/Blob dependencies; static files alone do not provide those services.'))
             ])
