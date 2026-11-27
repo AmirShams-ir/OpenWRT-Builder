@@ -66,8 +66,8 @@ chmod 0755 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
 [ "$(df -P "$BASE" | awk 'NR==2 {print $NF}')" = "/home/smartnet" ] || fail "hosting data is not on persistent /home/smartnet"
 
 # Exercise SQLite on the persistent hosting volume; remove the temporary DB afterward.
-SQLITE_TEST="$BASE/tmp/.sqlite-smoke-$.db"
-SQLITE_RESULT="$(sqlite3 "$SQLITE_TEST" 'CREATE TABLE smoke_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO smoke_test(value) VALUES (\"smartnet\"); PRAGMA integrity_check;' 2>/dev/null)" || fail "SQLite smoke test could not create/query a database"
+SQLITE_TEST="$BASE/tmp/.sqlite-smoke-$$.db"
+SQLITE_RESULT="$(sqlite3 "$SQLITE_TEST" "CREATE TABLE smoke_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO smoke_test(value) VALUES ('smartnet'); PRAGMA integrity_check;" 2>/dev/null)" || fail "SQLite smoke test could not create/query a database"
 [ "$SQLITE_RESULT" = "ok" ] || fail "SQLite integrity smoke test failed: $SQLITE_RESULT"
 rm -f "$SQLITE_TEST" "$SQLITE_TEST-wal" "$SQLITE_TEST-shm"
 log "SQLite smoke test passed; per-app DB path is apps/<slug>/db/app.sqlite"
