@@ -101,11 +101,12 @@ server {
     error_log /home/smartnet/webhosting/logs/error.log;
     client_max_body_size 8m;
 
-    location ~ ^/apps/[^/]+/(data|db|logs|config)/ { deny all; }
-    location ~ /\. { deny all; }
+    # Reject private app paths before the server-level rewrites.
+    if ($uri ~* ^/apps/[a-z0-9][a-z0-9_-]*/(data|db|logs|config)/) { return 404; }
+    location ~ /\\. { deny all; }
 
     rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/?$ /apps/$1/public/index.html last;
-    rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/(.*)$ /apps/$1/public/$2 last;
+    rewrite ^/apps/([a-z0-9][a-z0-9_-]*)/(?!public/)(.*)$ /apps/$1/public/$2 last;
 
     location ~ ^/apps/([a-z0-9][a-z0-9_-]*)/public/ {
         try_files $uri $uri/ /apps/$1/public/index.html;
