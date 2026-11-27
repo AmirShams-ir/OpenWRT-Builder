@@ -19,6 +19,12 @@ log() { printf '%s\n' "[08-webhosting] $*"; printf '%s\n' "[08-webhosting] $*" >
 report() { printf '%s\n' "$*" >> "$REPORT" 2>/dev/null || true; }
 fail() { log "ERROR: $*"; report "08-webhosting: FAILED - $*"; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+copy_install() {
+    # OpenWrt BusyBox may not include the standalone install utility.
+    src="$1"; dst="$2"; mode="$3"
+    cp "$src" "$dst" || return 1
+    chmod "$mode" "$dst" || return 1
+}
 
 [ "$(id -u)" -eq 0 ] || fail "must run as root"
 have apk || fail "APK package manager not found"
@@ -142,8 +148,8 @@ for rel in \
     if [ -f "$REPO_FILES/$rel" ]; then
         mkdir -p "/$(dirname "$rel")"
         case "$rel" in
-            etc/init.d/*|usr/sbin/*) install -m 0755 "$REPO_FILES/$rel" "$dst" ;;
-            *) install -m 0644 "$REPO_FILES/$rel" "$dst" ;;
+            etc/init.d/*|usr/sbin/*) copy_install "$REPO_FILES/$rel" "$dst" 0755 || fail "could not copy executable asset: $rel" ;;
+            *) copy_install "$REPO_FILES/$rel" "$dst" 0644 || fail "could not copy data asset: $rel" ;;
         esac
     elif [ ! -f "$dst" ]; then
         fail "asset unavailable in repo and installed system: files/$rel"
