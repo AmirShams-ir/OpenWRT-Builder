@@ -7,7 +7,6 @@ var callSystemInfo = rpc.declare({
     method: 'info',
     expect: {}
 });
-
 var callBoard = rpc.declare({
     object: 'system',
     method: 'board',
@@ -21,7 +20,6 @@ return view.extend({
             callBoard().catch(function() { return {}; })
         ]);
     },
-
     render: function(data) {
         var info = data[0] || {};
         var board = data[1] || {};
@@ -33,28 +31,35 @@ return view.extend({
 
         return E('div', { 'class': 'cbi-map' }, [
             E('h2', _('Smart-Net WebApp Hosting')),
-            E('p', {}, _('Hosting foundation for AmirNote and future Smart-Net web applications.')),
+            E('p', {}, _('General-purpose hosting for static Vue/Vite, React and other frontend builds. AmirNote is one possible hosted app, not the hosting root.')),
             E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('System')),
+                E('h3', _('Device')),
                 E('p', {}, _('Model: ') + model),
                 E('p', {}, _('Architecture: ') + arch),
-                E('p', {}, _('Memory total: ') + mem)
+                E('p', {}, _('Memory: ') + mem)
             ]),
             E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('Web server')),
-                E('p', {}, _('Nginx site listener: http://192.168.12.1:8080/')),
-                E('p', {}, _('LuCI remains on its existing uHTTPd ports.')),
-                E('p', {}, _('Frontend root: /home/smartnet/webhosting/sites/amirnote')),
-                E('p', {}, _('API upstream: 127.0.0.1:3000 (reserved; runtime pending)'))
+                E('h3', _('Hosting layout')),
+                E('p', {}, _('Persistent app root: /home/smartnet/webhosting/apps/')),
+                E('p', {}, _('Each app has public/, data/, db/, logs/ and config/ directories.')),
+                E('p', {}, _('Static app URL: http://<LAN-IP>:8080/apps/<app-slug>/')),
+                E('p', {}, _('Nginx uses port 8080; existing LuCI/uHTTPd ports are not changed.'))
             ]),
             E('div', { 'class': 'cbi-section' }, [
-                E('h3', _('AmirNote deployment')),
-                E('p', {}, _('The current AmirNote API depends on Vercel Functions and Vercel Blob. A compatible API adapter and storage configuration are required before full operation.')),
-                E('p', {}, _('Never expose BLOB_READ_WRITE_TOKEN in frontend files.'))
+                E('h3', _('Create and publish an app')),
+                E('p', {}, _('Run as root: smartnet-webhosting create <slug>')),
+                E('p', {}, _('Build Vue/Vite or React on a development PC/CI, then copy the production build into the app public/ directory.')),
+                E('p', {}, _('List apps: smartnet-webhosting list'))
+            ]),
+            E('div', { 'class': 'cbi-section' }, [
+                E('h3', _('Backend and database')),
+                E('p', {}, _('Dynamic backend/container runtimes must be verified for this device architecture before deployment.')),
+                E('p', {}, _('SQLite is app-local: an app can create /home/smartnet/webhosting/apps/<slug>/db/app.sqlite using its own SQLite library.')),
+                E('p', {}, _('Do not expose data/, db/, logs/ or config/ through the web server. Keep secrets out of frontend build files.')),
+                E('p', {}, _('AmirNote currently needs an API and storage adapter for its Vercel Functions/Blob dependencies; static files alone do not provide those services.'))
             ])
         ]);
     },
-
     handleSave: null,
     handleSaveApply: null,
     handleReset: null
