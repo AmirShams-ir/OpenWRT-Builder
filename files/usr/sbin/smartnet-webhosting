@@ -1,0 +1,51 @@
+#!/bin/sh
+# Smart-Net WebApp Hosting CLI. Data-preserving operations only.
+set -eu
+BASE="/home/smartnet/webhosting/apps"
+usage() {
+    echo "Usage: smartnet-webhosting {list|create <slug>|info <slug>}"
+    echo "Slug: lowercase letters/digits, starts alphanumeric, then a-z 0-9 _ -"
+}
+valid() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9_-]{0,39}$'; }
+[ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
+[ -d "$BASE" ] || { echo "Hosting is not initialized: $BASE" >&2; exit 1; }
+cmd="${1:-}"
+case "$cmd" in
+    list)
+        for d in "$BASE"/*; do
+            [ -d "$d" ] || continue
+            printf '%s\t%s\n' "${d##*/}" "$( [ -f "$d/public/index.html" ] && echo published || echo empty )"
+        done
+        ;;
+    create)
+        slug="${2:-}"
+        valid "$slug" || { usage; exit 2; }
+        dir="$BASE/$slug"
+        [ ! -e "$dir" ] || { echo "App already exists: $slug" >&2; exit 1; }
+        mkdir -p "$dir"/public "$dir"/data "$dir"/db "$dir"/logs "$dir"/config
+        cat > "$dir/public/index.html" <<HTML
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>$slug</title><h1>$slug</h1><p>Deploy your production frontend build into this public directory.</p></html>
+HTML
+        printf '{"name":"%s","type":"static","enabled":true}\n' "$slug" > "$dir/config/app.json"
+        chmod 0750 "$dir" "$dir"/public "$dir"/data "$dir"/db "$dir"/logs "$dir"/config
+        echo "Created $slug."
+        echo "Publish static build files to: $dir/public"
+        echo "Persistent writable data: $dir/data"
+        echo "App-owned SQLite database location: $dir/db/app.sqlite"
+        echo "URL: http://<Smart-Net-LAN-IP>:8080/apps/$slug/"
+        ;;
+    info)
+        slug="${2:-}"
+        valid "$slug" || { usage; exit 2; }
+        dir="$BASE/$slug"
+        [ -d "$dir" ] || { echo "No such app: $slug" >&2; exit 1; }
+        echo "App: $slug"
+        echo "Public: $dir/public"
+        echo "Data: $dir/data"
+        echo "SQLite path (created by app runtime): $dir/db/app.sqlite"
+        echo "Logs: $dir/logs"
+        echo "Config: $dir/config"
+        ;;
+    *) usage; exit 2 ;;
+esac
