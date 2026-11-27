@@ -53,12 +53,17 @@ mkdir -p "$APPS" "$BASE/logs" "$BASE/tmp" "$CONF_DIR" /etc/nginx/smartnet-apps
 if [ ! -f /etc/nginx/smartnet-apps/00-empty.conf ]; then
     printf '%s\\n' '# Smart-Net app proxy routes are added here by the hosting CLI.' > /etc/nginx/smartnet-apps/00-empty.conf
 fi
-chmod 0750 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
+# Nginx workers run as the unprivileged nobody user on OpenWrt.
+# Parent directories must be searchable and static assets readable by workers.
+# Private app directories remain owner-only and are never published by the vhost.
+chmod 0755 "$BASE" "$APPS" "$BASE/logs" "$BASE/tmp"
 [ "$(df -P "$BASE" | awk 'NR==2 {print $NF}')" = "/home/smartnet" ] || fail "hosting data is not on persistent /home/smartnet"
 
 # Create an app-neutral landing site. AmirNote is just another app directory.
 if [ ! -d "$APPS/default" ]; then
     mkdir -p "$APPS/default/public" "$APPS/default/data" "$APPS/default/db" "$APPS/default/logs" "$APPS/default/config"
+    chmod 0755 "$APPS/default" "$APPS/default/public"
+    chmod 0700 "$APPS/default/data" "$APPS/default/db" "$APPS/default/logs" "$APPS/default/config"
     cat > "$APPS/default/public/index.html" <<'HTML'
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
@@ -69,6 +74,20 @@ if [ ! -d "$APPS/default" ]; then
 HTML
     printf '%s\n' '{"name":"default","type":"static","enabled":true}' > "$APPS/default/config/app.json"
 fi
+
+# Normalize existing app trees: Nginx needs traversal/read access only for public assets.
+# Keep data/db/logs/config private (owner-only).
+for app in "$APPS"/*; do
+    [ -d "$app" ] || continue
+    chmod 0755 "$app" 2>/dev/null || fail "cannot set traversal permission on $app"
+    if [ -d "$app/public" ]; then
+        find "$app/public" -type d -exec chmod 0755 {} + || fail "cannot set public directory permissions in $app"
+        find "$app/public" -type f -exec chmod 0644 {} + || fail "cannot set public file permissions in $app"
+    fi
+    for private_dir in data db logs config; do
+        [ ! -d "$app/$private_dir" ] || chmod 0700 "$app/$private_dir" || fail "cannot secure $app/$private_dir"
+    done
+done
 
 # Build a minimal complete nginx.conf when the package does not provide one.
 # If one exists, preserve it and add our include exactly once.
@@ -173,6 +192,13 @@ if pidof nginx >/dev/null 2>&1; then
     /etc/init.d/nginx reload || fail "nginx reload failed"
 else
     /etc/init.d/nginx start || fail "nginx start failed"
+fi
+
+# Catch permission/path problems during installation, not at first browser visit.
+if have curl; then
+    HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ 2>/dev/null || true)"
+    [ "$HTTP_CODE" = "200" ] || fail "WebHosting smoke test failed (HTTP ${HTTP_CODE:-no-response}); inspect $BASE/logs/error.log"
+    log "WebHosting smoke test passed (HTTP $HTTP_CODE)"
 fi
 
 [ ! -x /etc/init.d/rpcd ] || /etc/init.d/rpcd reload >/dev/null 2>&1 || true
