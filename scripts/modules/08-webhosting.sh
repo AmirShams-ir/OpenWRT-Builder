@@ -68,7 +68,19 @@ worker_processes 1;
 pid /var/run/nginx.pid;
 events { worker_connections 256; }
 http {
-    include /etc/nginx/mime.types;
+    types {
+        text/html html htm;
+        text/css css;
+        application/javascript js mjs;
+        application/json json;
+        image/svg+xml svg;
+        image/png png;
+        image/jpeg jpg jpeg;
+        image/gif gif;
+        image/webp webp;
+        font/woff woff;
+        font/woff2 woff2;
+    }
     default_type application/octet-stream;
     sendfile on;
     keepalive_timeout 30;
