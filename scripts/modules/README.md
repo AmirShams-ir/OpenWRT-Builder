@@ -47,9 +47,19 @@ Module 08 creates a minimal `/etc/nginx/nginx.conf` only when missing. If an exi
 smartnet-webhosting list
 smartnet-webhosting create my-app
 smartnet-webhosting info my-app
+smartnet-webhosting container-run my-app my-local-image:tag 3000 13000
+smartnet-webhosting container-status my-app
+smartnet-webhosting container-stop my-app
+smartnet-webhosting container-remove my-app
 ```
 
 Creation is non-destructive; there is deliberately no delete command. Publish a Vite/React build by copying the contents of its build output (usually `dist/`) into the app's `public/` directory.
+
+### Optional Docker backend
+
+If Module 07 has installed a working Docker daemon, Module 08 provides a root-only CLI to run a locally available per-app container. The image is not pulled automatically: first obtain it, then verify it supports Linux `386/i386`. The command refuses other image architectures. This matters on the Clientron's 32-bit i686 userspace; do not assume amd64/arm64 images work.
+
+`container-run` binds the container port only to localhost, mounts the app's persistent `data/` and `db/` directories, and adds an Nginx route at `/apps/<slug>/api/`. The container is expected to listen on the supplied port and use `/app/data` and `/app/db` for persistent paths. `container-remove` removes the container and proxy route but preserves app data and the SQLite directory.
 
 ### SQLite and backend containers
 
