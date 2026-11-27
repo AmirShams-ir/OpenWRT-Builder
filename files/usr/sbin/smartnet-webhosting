@@ -56,7 +56,11 @@ case "$cmd" in
 <title>$slug</title><h1>$slug</h1><p>Deploy your production frontend build into this public directory.</p></html>
 HTML
         printf '{"name":"%s","type":"static","enabled":true}\n' "$slug" > "$dir/config/app.json"
-        chmod 0750 "$dir" "$dir/public" "$dir/data" "$dir/db" "$dir/logs" "$dir/config"
+        # Nginx workers must traverse app/public; private data stays owner-only.
+        chmod 0755 "$dir" "$dir/public"
+        chmod 0700 "$dir/data" "$dir/db" "$dir/logs" "$dir/config"
+        find "$dir/public" -type d -exec chmod 0755 {} +
+        find "$dir/public" -type f -exec chmod 0644 {} +
         echo "Created $slug."
         echo "Copy the contents of your production build (usually dist/) to: $dir/public"
         echo "Persistent app data: $dir/data ; SQLite path: $dir/db/app.sqlite"
